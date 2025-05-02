@@ -3,11 +3,13 @@
 #SBATCH --mail-user=cas003@usask.ca
 #SBATCH --mail-type=ALL
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=16
-#SBATCH --mem=36G
-#SBATCH --time=72:00:00
+#SBATCH --ntasks-per-node=32
+#SBATCH --mem=90G
+#SBATCH --time=120:00:00
 #SBATCH --get-user-env
 #SBATCH --account=def-moewes
+
+plusU="n" # Either y or n
 
 echo "NTASKS  = $SLURM_NTASKS"
 setenv SCRATCH /home/somersc0/scratch
@@ -23,7 +25,7 @@ set nproc0=$nproc
 
 rm .machines
 set i=1
-while ($i <= $nproc0 )
+while ($i <= $nproc0)
 echo "1:$proclist[$i]" >>.machines
 @ i ++
 ##@ i ++      # uncomment if you want to use only every second proc
@@ -41,23 +43,55 @@ x lapw1 -p -d >&/dev/null
 ## Now put you wien2k command like:
 #clean_lapw
 
-# Basic SCF Cycle
-run_lapw  -NI -p -ec 0.00001 -cc 0.01 -i 500
+if [[ "$plusU" == "n" ]]; then
+  # Basic SCF Cycle
+  run_lapw  -NI -p -ec 0.00001 -cc 0.01 -i 500 # First run
 
-x lapw2 -p -qtl
+  max_chars=0
+  for file in *.error; do # Check if it crashed due to an error
+    if [ -f "$file" ]; then
+      char_count=$(wc -m < "$file")
+      if [ "$char_count" -gt "$max_chars" ]; then
+        max_chars="$char_count"
+      fi
+    fi
+  done
 
-chmod +x xspec_export.sh
-./xspec_export.sh
+  if [ "$max_chars" -gt 5 ]; then
+    run_lapw  -NI -p -ec 0.00001 -cc 0.01 -i 500 # If yes, then rerun
+    # Can wrap this entire thing in a for loop to choose how many attempts to give it.
+    touch "HadToRerun.txt"
+  fi
 
-# Spin Polarized SCF Cycle with Plus U orbital potentials
-runsp_lapw -orb -NI -p -ec 0.00001 -cc 0.01 -i 500
+  x lapw2 -p -qtl
 
-x lapw1 -p -up
-x lapw2 -p -qtl -up
+  chmod +x xspec_export.sh
+  ./xspec_export.sh
+else
+  # Spin Polarized SCF Cycle with Plus U orbital potentials
+  runsp_lapw -orb -NI -p -ec 0.00001 -cc 0.01 -i 500
 
-x lapw1 -p -dn
-x lapw2 -p -qtl -dn
+  max_chars=0
+  for file in *.error; do
+    if [ -f "$file" ]; then
+      char_count=$(wc -m < "$file")
+      if [ "$char_count" -gt "$max_chars" ]; then
+        max_chars="$char_count"
+      fi
+    fi
+  done
 
-chmod +x xspec_export_spin_polarized.sh
-./xspec_export_spin_polarized.sh
+  if [ "$max_chars" -gt 5 ]; then
+    runsp_lapw -orb -NI -p -ec 0.00001 -cc 0.01 -i 500
+    touch "HadToRerun.txt"
+  fi
 
+  x lapw1 -p -up
+  x lapw2 -p -qtl -up
+
+  x lapw1 -p -dn
+  x lapw2 -p -qtl -dn
+
+  chmod +x xspec_export_spin_polarized.sh
+  ./xspec_export_spin_polarized.sh
+fi
