@@ -1,0 +1,48 @@
+#!/bin/tcsh
+#SBATCH -J CoFeMn
+#SBATCH --mail-user=cas003@usask.ca
+#SBATCH --mail-type=ALL
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=16
+#SBATCH --mem=36G
+#SBATCH --time=72:00:00
+#SBATCH --get-user-env
+#SBATCH --account=def-moewes
+
+echo "NTASKS  = $SLURM_NTASKS"
+setenv SCRATCH /home/somersc0/scratch
+echo DIRECTORY = $SLURM_SUBMIT_DIR
+echo WIENROOT = $WIENROOT
+echo SCRATCH = $SCRATCH
+echo "Got $SLURM_NTASKS cores"
+echo nodelist "$SLURM_JOB_NODELIST"
+srun hostname -s  >slurm.hosts
+set proclist=`cat slurm.hosts|sort`
+set nproc=$SLURM_NTASKS
+set nproc0=$nproc
+
+rm .machines
+set i=1
+while ($i <= $nproc0 )
+echo "1:$proclist[$i]" >>.machines
+@ i ++
+##@ i ++      # uncomment if you want to use only every second proc
+end
+echo "granularity:1" >>.machines
+echo "extrafine:1" >>.machines
+echo ' ' >>.machines
+
+##Create .processes
+x lapw1 -p -d >&/dev/null
+#lapw1para_lapw lapw1.def
+
+
+###############################
+## Now put you wien2k command like:
+#clean_lapw
+run_lapw  -NI -p -ec 0.00001 -cc 0.01 -i 500
+
+x lapw2 -p -qtl
+
+
+
