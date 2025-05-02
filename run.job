@@ -40,9 +40,24 @@ x lapw1 -p -d >&/dev/null
 ###############################
 ## Now put you wien2k command like:
 #clean_lapw
+
+# Basic SCF Cycle
 run_lapw  -NI -p -ec 0.00001 -cc 0.01 -i 500
 
 x lapw2 -p -qtl
 
+chmod +x xspec_export.sh
+./xspec_export.sh
 
+# Spin Polarized SCF Cycle with Plus U orbital potentials
+runsp_lapw -orb -NI -p -ec 0.00001 -cc 0.01 -i 500
+
+x lapw1 -p -up
+x lapw2 -p -qtl -up
+
+x lapw1 -p -dn
+x lapw2 -p -qtl -dn
+
+chmod +x xspec_export_spin_polarized.sh
+./xspec_export_spin_polarized.sh
 
