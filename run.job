@@ -38,7 +38,6 @@ echo ' ' >>.machines
 x lapw1 -p -d >&/dev/null
 #lapw1para_lapw lapw1.def
 
-
 ###############################
 ## Now put you wien2k command like:
 #clean_lapw
