@@ -39,18 +39,16 @@ if [[ "$plusU" == "n" ]]; then
   run_lapw  -NI -p -ec 0.00001 -cc 0.01 -i 500 # First run
 
   max_chars=0
-  for file in *.error; do # Check if it crashed due to an error
-    if [ -f "$file" ]; then
-      char_count=$(wc -m < "$file")
-      if [ "$char_count" -gt "$max_chars" ]; then
-        max_chars="$char_count"
-      fi
+  for file in *.error*; do
+    [ -f "$file" ] || continue
+    char_count=$(wc -m < "$file")
+    if [ "$char_count" -gt "$max_chars" ]; then
+          max_chars="$char_count"
     fi
   done
 
   if [ "$max_chars" -gt 5 ]; then
     run_lapw  -NI -p -ec 0.00001 -cc 0.01 -i 500 # If yes, then rerun
-    # Can wrap this entire thing in a for loop to choose how many attempts to give it.
     touch "HadToRerun.txt"
   fi
 
@@ -63,16 +61,16 @@ else
   runsp_lapw -orb -NI -p -ec 0.00001 -cc 0.01 -i 500
 
   max_chars=0
-  for file in *.error; do
-    if [ -f "$file" ]; then
-      char_count=$(wc -m < "$file")
-      if [ "$char_count" -gt "$max_chars" ]; then
-        max_chars="$char_count"
-      fi
+  for file in *.error*; do
+    [ -f "$file" ] || continue
+    char_count=$(wc -m < "$file")
+    if [ "$char_count" -gt "$max_chars" ]; then
+          max_chars="$char_count"
     fi
   done
 
   if [ "$max_chars" -gt 5 ]; then
+    # Run lapw here
     runsp_lapw -orb -NI -p -ec 0.00001 -cc 0.01 -i 500
     touch "HadToRerun.txt"
   fi
