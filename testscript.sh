@@ -1,11 +1,9 @@
-#!/bin/tcsh
+#!/bin/bash
 
-echo "Howdy"
-
-set max_chars=0
-for file in *.error; do
+max_chars=0
+for file in *.error*; do
   echo "$file"
-  [ -f "$file" ] || break
+  [ -f "$file" ] || continue
   char_count=$(wc -m < "$file")
   echo "$char_count"
   if [ "$char_count" -gt "$max_chars" ]; then
@@ -14,7 +12,6 @@ for file in *.error; do
 done
 
   if [ "$max_chars" -gt 5 ]; then
-    echo "Bruther"
-    echo "$max_chars"
+    # Run lapw here
     touch "HadToRerun.txt"
   fi

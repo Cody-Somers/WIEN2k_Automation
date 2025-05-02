@@ -1,4 +1,4 @@
-#!/bin/tcsh
+#!/bin/bash
 #SBATCH -J CoFeMn
 #SBATCH --mail-user=cas003@usask.ca
 #SBATCH --mail-type=ALL
@@ -11,28 +11,20 @@
 
 plusU="n" # Either y or n
 
-echo "NTASKS  = $SLURM_NTASKS"
 setenv SCRATCH /home/somersc0/scratch
-echo DIRECTORY = $SLURM_SUBMIT_DIR
-echo WIENROOT = $WIENROOT
-echo SCRATCH = $SCRATCH
-echo "Got $SLURM_NTASKS cores"
-echo nodelist "$SLURM_JOB_NODELIST"
 srun hostname -s  >slurm.hosts
-set proclist=`cat slurm.hosts|sort`
-set nproc=$SLURM_NTASKS
-set nproc0=$nproc
+proclist=$(< slurm.hosts sort)
+nproc=$SLURM_NTASKS
+nproc0=$nproc
 
 rm .machines
-set i=1
-while ($i <= $nproc0)
-echo "1:$proclist[$i]" >>.machines
-@ i ++
-##@ i ++      # uncomment if you want to use only every second proc
-end
-echo "granularity:1" >>.machines
-echo "extrafine:1" >>.machines
-echo ' ' >>.machines
+i=1
+while [ $i -le "$nproc0" ]; do
+  echo "1:${proclist[$i]}" >>.machines
+  @ i ++
+  ##@ i ++      # uncomment if you want to use only every second proc
+done
+{ echo "granularity:1"; echo "extrafine:1"; echo ' '; }  >>.machines
 
 ##Create .processes
 x lapw1 -p -d >&/dev/null
@@ -94,3 +86,4 @@ else
   chmod +x xspec_export_spin_polarized.sh
   ./xspec_export_spin_polarized.sh
 fi
+
