@@ -77,8 +77,8 @@ EOM
     cp "${CASE_NAME}.txspecup" "${EXPORT_DIR}/${ABS_FILE_TEMPLATE/!atom!/$ATOM}.txspecup"
 
    	x xspec -dn
-    cp "${CASE_NAME}.xspecup" "${EXPORT_DIR}/${ABS_FILE_TEMPLATE/!atom!/$ATOM}.xspecup"
-    cp "${CASE_NAME}.txspecup" "${EXPORT_DIR}/${ABS_FILE_TEMPLATE/!atom!/$ATOM}.txspecup"
+    cp "${CASE_NAME}.xspecdn" "${EXPORT_DIR}/${ABS_FILE_TEMPLATE/!atom!/$ATOM}.xspecdn"
+    cp "${CASE_NAME}.txspecdn" "${EXPORT_DIR}/${ABS_FILE_TEMPLATE/!atom!/$ATOM}.txspecdn"
 done
 
 exit 0
