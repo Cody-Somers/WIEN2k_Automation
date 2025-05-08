@@ -9,76 +9,107 @@
 #SBATCH --get-user-env
 #SBATCH --account=def-moewes
 
-plusU="y" # Either y or n
+plusU="y" # Either lowercase y or n
+# REMEMBER: For these you will also need to have the xspec_export.sh or xspec_export_spin_polarized.sh files
 
-setenv SCRATCH /home/somersc0/scratch
+setenv SCRATCH /home/somersc0/scratch # Set this to your personal scratch
+
+# Gets the hosts and puts it into the .machines file.
 srun hostname -s  >slurm.hosts
-
 rm .machines
 proclist=$(< slurm.hosts sort)
 echo -e "$proclist" > tempproclist
 while IFS= read -r line; do
   echo "1:$line" >>.machines
 done < tempproclist
-
 { echo "granularity:1"; echo "extrafine:1"; echo ' '; }  >>.machines
 
-##Create .processes
+##Create .processes (idk why this is here tbh)
 x lapw1 -p -d >&/dev/null
 #lapw1para_lapw lapw1.def
 
+# Bash Functions
+check_convergence () {
+  converged=$(grep "ec cc fc" ./*.dayfile | tail -n 1)
+  if [[ "$converged" == "ec cc fc and str_conv 1 1 1 1" ]]; then # This might change if you change the run_lapw??
+    converged="True"
+  else
+    converged="False"
+  fi
+}
+
+basic_xspec () {
+  # Necessary to do x xspec
+  # x lapw1 -p
+  x lapw2 -p -qtl
+  # Calculate xspec files
+  chmod +x xspec_export.sh
+  ./xspec_export.sh
+}
+
+plusU_xspec () {
+  # Necessary to do xspec (lapw1 can be added if you change kmesh or energy range)
+  # x lapw1 -p -up
+  x lapw2 -p -qtl -up
+
+  # x lapw1 -p -dn
+  x lapw2 -p -qtl -dn
+
+  # Calculate the xspec files.
+  chmod +x xspec_export_spin_polarized.sh
+  ./xspec_export_spin_polarized.sh
+}
+
+basic_SCF () {
+  run_lapw  -NI -p -ec 0.00001 -cc 0.01 -i 200
+}
+
+plusU_SCF () {
+  runsp_lapw -orb -NI -p -ec 0.00001 -cc 0.01 -i 200
+}
+
+
 ###############################
-## Now put you wien2k command like:
-#clean_lapw
+## Wien2k commands go here
 
 if [[ "$plusU" == "n" ]]; then
   # Basic SCF Cycle
-  run_lapw  -NI -p -ec 0.00001 -cc 0.01 -i 500 # First run
-
-  max_chars=0
-  for file in *.error*; do
-    [ -f "$file" ] || continue
-    char_count=$(wc -m < "$file")
-    if [ "$char_count" -gt "$max_chars" ]; then
-          max_chars="$char_count"
-    fi
-  done
-
-  if [ "$max_chars" -gt 5 ]; then
-    run_lapw  -NI -p -ec 0.00001 -cc 0.01 -i 500 # If yes, then rerun
-    touch "HadToRerun.txt"
-  fi
-
-  x lapw2 -p -qtl
-
-  chmod +x xspec_export.sh
-  ./xspec_export.sh
-else
   # Spin Polarized SCF Cycle with Plus U orbital potentials
-  runsp_lapw -orb -NI -p -ec 0.00001 -cc 0.01 -i 500
+  basic_SCF # Run first attempt at SCF cycle
 
-  max_chars=0
-  for file in *.error*; do
-    [ -f "$file" ] || continue
-    char_count=$(wc -m < "$file")
-    if [ "$char_count" -gt "$max_chars" ]; then
-          max_chars="$char_count"
+  # shellcheck disable=SC2034
+  for i in $(seq 1 3); do # If it is not converged then run attempt to run it again
+    check_convergence
+    if [[ "$converged" == "True" ]]; then
+      break
+    else
+      basic_SCF
     fi
   done
 
-  if [ "$max_chars" -gt 5 ]; then
-    # Run lapw here
-    runsp_lapw -orb -NI -p -ec 0.00001 -cc 0.01 -i 500
-    touch "HadToRerun.txt"
+  # If it was successful then we get the xspec calculations
+  check_convergence
+  if [[ "$converged" == "True" ]]; then
+    basic_xspec
   fi
+elif [[ "$plusU" == "y" ]]; then
+  # Spin Polarized SCF Cycle with Plus U orbital potentials
+  plusU_SCF # Run first attempt at SCF cycle
 
-  x lapw1 -p -up
-  x lapw2 -p -qtl -up
+  # shellcheck disable=SC2034
+  for i in $(seq 1 3); do # If it is not converged then run attempt to run it again.
+    check_convergence
+    if [[ "$converged" == "True" ]]; then
+      break
+    else
+      plusU_SCF
+    fi
+  done
 
-  x lapw1 -p -dn
-  x lapw2 -p -qtl -dn
-
-  chmod +x xspec_export_spin_polarized.sh
-  ./xspec_export_spin_polarized.sh
+  # If it was successful then we get the xspec calculations
+  check_convergence
+  if [[ "$converged" == "True" ]]; then
+    plusU_xspec
+  fi
 fi
 
