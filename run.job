@@ -3,13 +3,16 @@
 #SBATCH --mail-user=cas003@usask.ca
 #SBATCH --mail-type=ALL
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=6
-#SBATCH --mem=1G
-#SBATCH --time=01:00:00
+#SBATCH --ntasks-per-node=16
+#SBATCH --mem=40G
+#SBATCH --time=72:00:00
 #SBATCH --get-user-env
 #SBATCH --account=def-moewes
 
-plusU="y" # Either lowercase y or n
+# Capitalization is important here. Pay attention to the listed options available.
+scf_type="PlusU" # Basic, PlusU, SpinPolar
+xspec="True" # Either True or False
+resubmit="True" # Either True or False
 # REMEMBER: For these you will also need to have the xspec_export.sh or xspec_export_spin_polarized.sh files
 
 setenv SCRATCH /home/somersc0/scratch # Set this to your personal scratch
@@ -28,6 +31,7 @@ done < tempproclist
 x lapw1 -p -d >&/dev/null
 #lapw1para_lapw lapw1.def
 
+
 # Bash Functions
 check_convergence () {
   converged=$(grep "ec cc fc" ./*.dayfile | tail -n 1)
@@ -45,9 +49,10 @@ basic_xspec () {
   # Calculate xspec files
   chmod +x xspec_export.sh
   ./xspec_export.sh
+  # Could also be bash xspec_export.sh
 }
 
-plusU_xspec () {
+spinpolar_xspec () {
   # Necessary to do xspec (lapw1 can be added if you change kmesh or energy range)
   # x lapw1 -p -up
   x lapw2 -p -qtl -up
@@ -68,48 +73,53 @@ plusU_SCF () {
   runsp_lapw -orb -NI -p -ec 0.00001 -cc 0.01 -i 200
 }
 
+spinpolar_SCF() {
+  runsp_lapw -NI -p -ec 0.00001 -cc 0.01 -i 200
+}
+
+choose_SCF_type() {
+  if [[ "$scf_type" == "Basic" ]]; then
+    basic_SCF
+  elif [[ "$scf_type" == "PlusU" ]]; then
+    plusU_SCF
+  elif [[ "$scf_type" == "SpinPolar" ]]; then
+    spinpolar_SCF
+  fi
+}
+
+choose_xspec_type() {
+  if [[ "$scf_type" == "Basic" ]]; then
+    basic_xspec
+  elif [[ "$scf_type" == "PlusU" ]]; then
+    spinpolar_xspec
+  elif [[ "$scf_type" == "SpinPolar" ]]; then
+    spinpolar_xspec
+  fi
+}
+
+run_SCF() {
+  choose_SCF_type # Run an SCF cycle until it crashes
+  for i in $(seq 1 2); do # If it is not converged then attempt to run it again
+    check_convergence
+    if [[ "$converged" == "True" ]]; then
+      break
+    else
+      choose_SCF_type
+    fi
+  done
+
+  # Checks if it has reached convergence, then calculates the xspec files (see other script)
+  check_convergence
+  if [[ "$converged" == "True" && "$xspec" == "True" ]]; then
+    choose_xspec_type
+  fi
+
+  if [[ "$converged" != "True" && "$resubmit" == "True" ]]; then
+    sbatch run.job # If it has still not converged, then resubmit the job
+  fi
+}
 
 ###############################
 ## Wien2k commands go here
 
-if [[ "$plusU" == "n" ]]; then
-  # Basic SCF Cycle
-  # Spin Polarized SCF Cycle with Plus U orbital potentials
-  basic_SCF # Run first attempt at SCF cycle
-
-  # shellcheck disable=SC2034
-  for i in $(seq 1 3); do # If it is not converged then run attempt to run it again
-    check_convergence
-    if [[ "$converged" == "True" ]]; then
-      break
-    else
-      basic_SCF
-    fi
-  done
-
-  # If it was successful then we get the xspec calculations
-  check_convergence
-  if [[ "$converged" == "True" ]]; then
-    basic_xspec
-  fi
-elif [[ "$plusU" == "y" ]]; then
-  # Spin Polarized SCF Cycle with Plus U orbital potentials
-  plusU_SCF # Run first attempt at SCF cycle
-
-  # shellcheck disable=SC2034
-  for i in $(seq 1 3); do # If it is not converged then run attempt to run it again.
-    check_convergence
-    if [[ "$converged" == "True" ]]; then
-      break
-    else
-      plusU_SCF
-    fi
-  done
-
-  # If it was successful then we get the xspec calculations
-  check_convergence
-  if [[ "$converged" == "True" ]]; then
-    plusU_xspec
-  fi
-fi
-
+run_SCF
