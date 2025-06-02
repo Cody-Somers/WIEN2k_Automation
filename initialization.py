@@ -1,4 +1,4 @@
-# Created: June 2, 2025
+# Created: 02/06/2025 (June 2, 2025)
 # Last Edit: 02/06/2025
 
 import os
@@ -9,6 +9,7 @@ from tempfile import mkstemp
 # TODO: Create a function that uses the .struct instead of the .cif if it exists
 # TODO: Create a function that uses the built in init to see what Wien2k recommends for input parameters
 # TODO: Create a function that checks for warnings and outputs them to the user
+# TODO: Figure how to replace RKmax, gmax
 
 # Helper Functions
 def get_current_folder_name():
@@ -44,6 +45,8 @@ def run_terminal_command(args):
     print(args) # Might not be necessary
     command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True)
     print(command.stdout)
+
+    # Error handling
     check_error_files()
     for line in command.stdout.splitlines():
         if ("ERROR IN OPENING UNIT" or "error: command") in line: # Update this line as more error combinations occur
@@ -86,7 +89,7 @@ def convert_cif_to_struct():
         print("No cif structure found")
         exit(1)
 
-def initialize_structure(nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000):
+def initialize_structure(nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000, spin_polar = False, plus_u = False):
     case = get_current_folder_name()
     # Calculate the x nearest neighbours and accept the recommendations of the program
     run_terminal_command(f'echo {nn} | x nn')
@@ -133,6 +136,12 @@ def initialize_structure(nn = 3, functional = "PBE", cutoff_energy = -6, k_point
     run_terminal_command(f'{{ echo {k_points}; echo 0; }} | x kgen')
     run_terminal_command('x dstart')
     run_terminal_command(f'cp {case}.inc_st {case}.inc')
+
+def get_info():
+    # RKmax, Energy k-vector range stored in .in1 or .in1c
+    # Gmax stored in .in2 or .in2c
+    # k-mesh and # of k-points found in .klist
+    case = get_current_folder_name()
 
 def main_program():
     convert_cif_to_struct()
