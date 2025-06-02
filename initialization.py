@@ -24,6 +24,7 @@ def get_current_folder_name():
     folder_name = os.path.basename(current_path) # Cut only the last folder
     return folder_name
 
+
 def file_exists(file_name):
     """
     Search if file exists in current directory
@@ -63,6 +64,7 @@ def check_error_files():
                 # Should we remove the error so that it can run again next iteration? Or let user do that manually?
                 exit(1)
 
+
 def replace(source_file_path, pattern, substring):
     fh, target_file_path = mkstemp()
     with open(target_file_path, 'w') as target_file, open(source_file_path, 'r') as source_file:
@@ -71,80 +73,90 @@ def replace(source_file_path, pattern, substring):
     run_terminal_command(f'rm {source_file_path}')
     run_terminal_command(f'mv {target_file_path} {source_file_path}')
 
-# Functions interacting with WIEN2k
-def convert_cif_to_struct():
-    case = get_current_folder_name()
-    for file_name in os.listdir('.'):
-        if file_name.endswith('.cif'): # Will convert the first cif file it finds. User can only have 1 cif in a folder for accurate parsing
-            if file_name == case+".cif":
+
+class Initialization:
+
+    def __init__(self, rkmax = 7, nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000):
+        self.case = get_current_folder_name()
+        self.rkmax = rkmax
+        self.functional = functional
+        self.nn = nn
+        self.cutoff_energy = cutoff_energy
+        self.k_points = k_points
+        self.complex_calc = False
+
+    # Functions interacting with WIEN2k
+    def convert_cif_to_struct(self):
+        for file_name in os.listdir('.'):
+            if file_name.endswith('.cif'): # Will convert the first cif file it finds. User can only have 1 cif in a folder for accurate parsing
+                if file_name == self.case+".cif":
+                    break
+                else:
+                    shutil.copy(file_name, self.case+".cif")
+                    break
+        if file_exists(self.case+".cif"):
+            run_terminal_command('x cif2struct')
+            run_terminal_command('setrmt')
+            run_terminal_command(f'cp {self.case}.struct_setrmt {self.case}.struct')
+        else:
+            print("No cif structure found")
+            exit(1)
+
+    def initialize_structure(self, spin_polar = False, plus_u = False):
+        # Calculate the x nearest neighbours and accept the recommendations of the program
+        run_terminal_command(f'echo {self.nn} | x nn')
+        while len(open(self.case+".struct_nn").readlines()) > 1:
+            run_terminal_command(f'cp {self.case}.struct_nn {self.case}.struct')
+            run_terminal_command(f'echo {self.nn} | x nn')
+
+        run_terminal_command('x sgroup')
+        # TODO: Check output for warning, then prompt user to accept the space group
+        symmetry_found = run_terminal_command('x symmetry')
+        for line in symmetry_found.splitlines():
+            if "SPACE GROUP DOES NOT CONTAIN INVERSION" in line: # Is this the best check for complex calcs?
+                print("Calculation is complex")
+                self.complex_calc = True
                 break
-            else:
-                shutil.copy(file_name, case+".cif")
-                break
-    if file_exists(case+".cif"):
-        run_terminal_command('x cif2struct')
-        run_terminal_command('setrmt')
-        run_terminal_command(f'cp {case}.struct_setrmt {case}.struct')
-    else:
-        print("No cif structure found")
-        exit(1)
+        run_terminal_command(f'cp {self.case}.struct_st {self.case}.struct') # Uses found symmetry group
 
-def initialize_structure(nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000, spin_polar = False, plus_u = False):
-    case = get_current_folder_name()
-    # Calculate the x nearest neighbours and accept the recommendations of the program
-    run_terminal_command(f'echo {nn} | x nn')
-    while len(open(case+".struct_nn").readlines()) > 1:
-        run_terminal_command(f'cp {case}.struct_nn {case}.struct')
-        run_terminal_command(f'echo {nn} | x nn')
+        run_terminal_command('echo "y" | instgen_lapw -up') # TODO: Make option to not default to spin up
 
-    run_terminal_command('x sgroup')
-    # TODO: Check output for warning, then prompt user to accept the space group
-    symmetry_found = run_terminal_command('x symmetry')
-    complex_calc = False
-    for line in symmetry_found.splitlines():
-        if "SPACE GROUP DOES NOT CONTAIN INVERSION" in line: # Is this the best check for complex calcs?
-            print("Calculation is complex")
-            complex_calc = True
-            break
-    run_terminal_command(f'cp {case}.struct_st {case}.struct') # Uses found symmetry group
+        run_terminal_command(f'{{ echo {self.functional}; echo {self.cutoff_energy}; }} | x lstart')
 
-    run_terminal_command('echo "y" | instgen_lapw -up') # TODO: Make option to not default to spin up
+        # Update case.in1_st to increase energy range
+        original_energy = "4   -9.0       1.5"
+        replace_energy =  "4   -9.0       3.5"
+        replace(self.case+".in1_st", original_energy, replace_energy)
 
-    run_terminal_command(f'{{ echo {functional}; echo {cutoff_energy}; }} | x lstart')
+        # Prepare input file
+        run_terminal_command(f'cp {self.case}.in0_st {self.case}.in0')
+        if self.complex_calc:
+            run_terminal_command(f'cp {self.case}.in1_st {self.case}.in1c')
+            run_terminal_command(f'cat {self.case}.in2_ls > {self.case}.in2c')
+            run_terminal_command(f'cat {self.case}.in2_sy >> {self.case}.in2c')
+        else:
+            run_terminal_command(f'cp {self.case}.in1_st {self.case}.in1')
+            run_terminal_command(f'cat {self.case}.in2_ls > {self.case}.in2')
+            run_terminal_command(f'cat {self.case}.in2_sy >> {self.case}.in2')
 
-    # Update case.in1_st to increase energy range
-    original_energy = "4   -9.0       1.5"
-    replace_energy =  "4   -9.0       3.5"
-    replace(case+".in1_st", original_energy, replace_energy)
+        run_terminal_command(f'cp {self.case}.inc_st {self.case}.inc')
+        run_terminal_command(f'cp {self.case}.inm_st {self.case}.inm')
+        run_terminal_command(f'cp {self.case}.inq_st {self.case}.inq')
 
-    # Prepare input file
-    run_terminal_command(f'cp {case}.in0_st {case}.in0')
-    if complex_calc:
-        run_terminal_command(f'cp {case}.in1_st {case}.in1c')
-        run_terminal_command(f'cat {case}.in2_ls > {case}.in2c')
-        run_terminal_command(f'cat {case}.in2_sy >> {case}.in2c')
-    else:
-        run_terminal_command(f'cp {case}.in1_st {case}.in1')
-        run_terminal_command(f'cat {case}.in2_ls > {case}.in2')
-        run_terminal_command(f'cat {case}.in2_sy >> {case}.in2')
+        # Generate the k-mesh
+        run_terminal_command(f'{{ echo {self.k_points}; echo 0; }} | x kgen')
+        run_terminal_command('x dstart')
+        run_terminal_command(f'cp {self.case}.inc_st {self.case}.inc')
 
-    run_terminal_command(f'cp {case}.inc_st {case}.inc')
-    run_terminal_command(f'cp {case}.inm_st {case}.inm')
-    run_terminal_command(f'cp {case}.inq_st {case}.inq')
+    def get_info(self):
+        # RKmax, Energy k-vector range stored in .in1 or .in1c
+        # Gmax stored in .in2 or .in2c
+        # k-mesh and # of k-points found in .klist
+        case = get_current_folder_name()
 
-    # Generate the k-mesh
-    run_terminal_command(f'{{ echo {k_points}; echo 0; }} | x kgen')
-    run_terminal_command('x dstart')
-    run_terminal_command(f'cp {case}.inc_st {case}.inc')
+    def main_program(self):
+        self.convert_cif_to_struct()
+        self.initialize_structure()
 
-def get_info():
-    # RKmax, Energy k-vector range stored in .in1 or .in1c
-    # Gmax stored in .in2 or .in2c
-    # k-mesh and # of k-points found in .klist
-    case = get_current_folder_name()
 
-def main_program():
-    convert_cif_to_struct()
-    initialize_structure()
-
-main_program()
+Initialization().main_program()
