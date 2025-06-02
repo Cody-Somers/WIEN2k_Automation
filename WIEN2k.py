@@ -1,5 +1,5 @@
 # Created: May 14
-# Last Updated: May 15
+# Last Updated: May 22
 # Cody Somers
 
 import os
@@ -9,6 +9,18 @@ import numpy as np
 
 def get_info(caseName):
     print(caseName)
+
+def write_hdf5():
+
+    return 0
+
+def test_shell(case='CoFeMn',rkmax='7'):
+    os.system('chmod +x test.sh')
+    pass_arg = ["./test.sh", case, rkmax]
+
+    subprocess.check_call(pass_arg)
+    print("We are waiting for 1 second")
+
 
 
 # Data Structure
@@ -24,3 +36,6 @@ def get_info(caseName):
 #       CoFeMn_O1
 #       CoFeMn_O2
 #       CoFeMn_Fe3
+
+# MAke a local log file that keeps track of the input parameters, then when you convert to hdf5 we need to combine
+# all of those log files together. This way we know that those folders have been converted properly.

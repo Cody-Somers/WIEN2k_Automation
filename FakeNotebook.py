@@ -1,10 +1,12 @@
-import WIEN2k
 from WIEN2k import *
 
 ###### One calculation
 
 caseName="Case"
-rkMax="RKMax"
+rkMax=7
+kgen=600
+
+
 # Create a new group based on the case name.
 # Initialize calculation
 # Get input parameters
