@@ -1,5 +1,5 @@
 # Created: 02/06/2025 (June 2, 2025)
-# Last Edit: 02/06/2025
+# Last Edit: 05/06/2025
 
 import os
 import shutil
@@ -9,7 +9,7 @@ from tempfile import mkstemp
 # TODO: Create a function that uses the .struct instead of the .cif if it exists
 # TODO: Create a function that uses the built in init to see what Wien2k recommends for input parameters
 # TODO: Create a function that checks for warnings and outputs them to the user
-# TODO: Figure how to replace RKmax, gmax
+# TODO: Figure how to replace gmax
 
 # Helper Functions
 def get_current_folder_name():
@@ -74,9 +74,27 @@ def replace(source_file_path, pattern, substring):
     run_terminal_command(f'mv {target_file_path} {source_file_path}')
 
 
+def make_new_working_folder():
+    # Make the new folder with numerical name
+    for i in range(0, 1000):
+        if os.path.exists(f'./{i}'):
+            pass
+        else:
+            os.mkdir(f'./{i}')
+            # Copy the cif file into this new folder
+            for file_name in os.listdir('.'):
+                if file_name.endswith('.cif'):
+                    shutil.copy(file_name, f'./{i}')
+                    return f'./{i}'
+            print("No Cif file found")
+            exit(1)
+    print("Have reached maximum number of files (1000 max). Make a new folder with original cif and start again.")
+    exit(1)
+
+
 class Initialization:
 
-    def __init__(self, rkmax = 7, nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000):
+    def __init__(self, rkmax = 7.00, nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000, e_range = (-9.0, 3.5)):
         self.case = get_current_folder_name()
         self.rkmax = rkmax
         self.functional = functional
@@ -84,6 +102,7 @@ class Initialization:
         self.cutoff_energy = cutoff_energy
         self.k_points = k_points
         self.complex_calc = False
+        self.e_range = e_range
 
     # Functions interacting with WIEN2k
     def convert_cif_to_struct(self):
@@ -92,7 +111,7 @@ class Initialization:
                 if file_name == self.case+".cif":
                     break
                 else:
-                    shutil.copy(file_name, self.case+".cif")
+                    shutil.move(file_name, self.case+".cif") # Change this to copy to preserve the system
                     break
         if file_exists(self.case+".cif"):
             run_terminal_command('x cif2struct')
@@ -102,7 +121,11 @@ class Initialization:
             print("No cif structure found")
             exit(1)
 
-    def initialize_structure(self, spin_polar = False, plus_u = False):
+    def change_directory(self, directory):
+        os.chdir(directory)
+        self.case = get_current_folder_name()
+
+    def initialize_structure(self):
         # Calculate the x nearest neighbours and accept the recommendations of the program
         run_terminal_command(f'echo {self.nn} | x nn')
         while len(open(self.case+".struct_nn").readlines()) > 1:
@@ -123,10 +146,15 @@ class Initialization:
 
         run_terminal_command(f'{{ echo {self.functional}; echo {self.cutoff_energy}; }} | x lstart')
 
+        # Update case.in1_st to change rkmax
+        default_rkmax = "7.00     10   4   ELPA" # TODO: Check if better way to change rkmax, or if the other params change
+        replace_rkmax = f"{self.rkmax}     10   4   ELPA"
+        replace(self.case+".in1_st", default_rkmax, replace_rkmax)
+
         # Update case.in1_st to increase energy range
-        original_energy = "4   -9.0       1.5"
-        replace_energy =  "4   -9.0       3.5"
-        replace(self.case+".in1_st", original_energy, replace_energy)
+        default_energy = "4   -9.0       1.5"
+        replace_energy =  f"4   {self.e_range[0]}       {self.e_range[1]}"
+        replace(self.case+".in1_st", default_energy, replace_energy)
 
         # Prepare input file
         run_terminal_command(f'cp {self.case}.in0_st {self.case}.in0')
@@ -146,17 +174,33 @@ class Initialization:
         # Generate the k-mesh
         run_terminal_command(f'{{ echo {self.k_points}; echo 0; }} | x kgen')
         run_terminal_command('x dstart')
-        run_terminal_command(f'cp {self.case}.inc_st {self.case}.inc')
+        run_terminal_command(f'cp {self.case}.in0_std {self.case}.in0')
 
-    def get_info(self):
+    def initialize_spin_polarized(self):
+        self.initialize_structure()
+        run_terminal_command('x dstart -up')
+        run_terminal_command('x dstart -dn')
+
+    def print_info(self):
         # RKmax, Energy k-vector range stored in .in1 or .in1c
         # Gmax stored in .in2 or .in2c
         # k-mesh and # of k-points found in .klist
-        case = get_current_folder_name()
+        return
 
     def main_program(self):
+        self.change_directory(make_new_working_folder())
         self.convert_cif_to_struct()
         self.initialize_structure()
+        # Change back out of directory???
+
+    def submit_slurm_job(self):
+        #os.system('chmod +x run.job')
+        #pass_arg = ["./run.job", "CoFeMn", "7"]
+
+        #subprocess.check_call(pass_arg)
+        return
 
 
-Initialization().main_program()
+Initialization(rkmax=6.5, k_points=500).main_program()
+
+# Today we need to get jupyter notebook implemented
