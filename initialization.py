@@ -94,7 +94,7 @@ def make_new_working_folder():
 
 class Initialization:
 
-    def __init__(self, rkmax = 7.00, nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000, e_range = (-9.0, 3.5)):
+    def __init__(self, rkmax = 7.00, nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000, e_range = (-9.0, 3.5), slurm_job = "run.job"):
         self.case = get_current_folder_name()
         self.rkmax = rkmax
         self.functional = functional
@@ -103,6 +103,7 @@ class Initialization:
         self.k_points = k_points
         self.complex_calc = False
         self.e_range = e_range
+        self.slurm_job = slurm_job
 
     # Functions interacting with WIEN2k
     def convert_cif_to_struct(self):
@@ -191,6 +192,7 @@ class Initialization:
         self.change_directory(make_new_working_folder())
         self.convert_cif_to_struct()
         self.initialize_structure()
+        self.change_directory("../")
         # Change back out of directory???
 
     def submit_slurm_job(self):
@@ -201,6 +203,6 @@ class Initialization:
         return
 
 
-Initialization(rkmax=6.5, k_points=500).main_program()
+#Initialization(rkmax=6.5, k_points=500).main_program()
 
 # Today we need to get jupyter notebook implemented
