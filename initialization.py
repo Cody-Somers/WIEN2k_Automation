@@ -1,5 +1,5 @@
 # Created: 02/06/2025 (June 2, 2025)
-# Last Edit: 05/06/2025
+# Last Edit: 17/06/2025
 
 import os
 import shutil
@@ -10,6 +10,8 @@ from tempfile import mkstemp
 # TODO: Create a function that uses the built in init to see what Wien2k recommends for input parameters
 # TODO: Create a function that checks for warnings and outputs them to the user
 # TODO: Figure how to replace gmax
+# TODO: Create a logbook that keeps track of what commands were sent, and which file name they were sent to.
+    # With logbook we should write to the file "CASE #: Failed", then overwrite it afterwards if it succeeded
 
 # Helper Functions
 def get_current_folder_name():
@@ -43,29 +45,59 @@ def file_exists(file_name):
         return False
 
 def run_terminal_command(args):
-    print(args) # Might not be necessary
+    """
+    Will run a command in terminal and return its output. Has built in error handling.
+
+    Parameters
+    ----------
+    args: command line arguments to be run
+
+    Returns
+    -------
+    stdout: return output from command
+    exit(1): If error occurred, exit with error code
+    """
+    print(args) # Print input commands
     command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True)
-    print(command.stdout)
+    print(command.stdout) # Print output results
 
     # Error handling
-    check_error_files()
-    for line in command.stdout.splitlines():
+    check_error_files() # Check if case.error files exist
+    for line in command.stdout.splitlines(): # Reads stdout and check if any errors occurred
         if ("ERROR IN OPENING UNIT" or "error: command") in line: # Update this line as more error combinations occur
             exit(1)
     return command.stdout
 
 def check_error_files():
-    for file_name in os.listdir('.'):
-        if file_name.endswith('.error'):
-            if len(open(file_name).readlines()) > 0:
+    """
+    Checks the case.error files from WIEN2k, and if any exists then it will end the process.
+
+    Returns
+    -------
+    exit(1): If error occurred, exit with error code
+    """
+    for file_name in os.listdir('.'): # For all files in current directory
+        if file_name.endswith('.error'): # Find case.error
+            if len(open(file_name).readlines()) > 0: # If file length is not 0 then error occurred
                 print("Error in file: " + file_name)
-                for line in open(file_name).readlines():
+                for line in open(file_name).readlines(): # Print out error for user
                     print(line)
-                # Should we remove the error so that it can run again next iteration? Or let user do that manually?
                 exit(1)
 
 
 def replace(source_file_path, pattern, substring):
+    """
+
+    Parameters
+    ----------
+    source_file_path
+    pattern
+    substring
+
+    Returns
+    -------
+
+    """
     fh, target_file_path = mkstemp()
     with open(target_file_path, 'w') as target_file, open(source_file_path, 'r') as source_file:
         for line in source_file:
@@ -90,6 +122,19 @@ def make_new_working_folder():
             exit(1)
     print("Have reached maximum number of files (1000 max). Make a new folder with original cif and start again.")
     exit(1)
+
+def auto_run(file_name="JupyterCommands.py"):
+    with open(file_name, "r") as file: # Read in Initialization().main_program() commands
+        lines = file.readlines()
+
+    while len(lines) > 0:
+        exec(lines[0]) # Run each command
+        lines.pop(0) # If command was successful then remove from list. (Assumes will crash if unsuccessful)
+        with open(file_name, "w") as file: # Update file with reduced list
+            file.writelines(lines)
+
+    if len(lines) == 0: # All commands ran successfully
+        run_terminal_command(f'rm {file_name}')
 
 
 class Initialization:
@@ -176,6 +221,7 @@ class Initialization:
         run_terminal_command(f'{{ echo {self.k_points}; echo 0; }} | x kgen')
         run_terminal_command('x dstart')
         run_terminal_command(f'cp {self.case}.in0_std {self.case}.in0')
+        print("END OF INITIALIZATION FOR CASE " + self.case)
 
     def initialize_spin_polarized(self):
         self.initialize_structure()
@@ -205,4 +251,8 @@ class Initialization:
 
 #Initialization(rkmax=6.5, k_points=500).main_program()
 
-# Today we need to get jupyter notebook implemented
+# This will execute when the file is run.
+if file_exists('JupyterCommands.py'):
+    auto_run()
+else:
+    print("No JupyterCommands.py found")
