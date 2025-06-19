@@ -12,6 +12,8 @@ from tempfile import mkstemp
 # TODO: Figure how to replace gmax
 # TODO: Create a logbook that keeps track of what commands were sent, and which file name they were sent to.
     # With logbook we should write to the file "CASE #: Failed", then overwrite it afterwards if it succeeded
+# TODO: Make a try and catch case where we try a bunch of different encodings then specify that explicitly.
+    # Right now we have commented out two aspects of the code that read the stdout to determine (such as complex)
 
 # Helper Functions
 def get_current_folder_name():
@@ -44,30 +46,6 @@ def file_exists(file_name):
     else:
         return False
 
-def run_terminal_command(args):
-    """
-    Will run a command in terminal and return its output. Has built in error handling.
-
-    Parameters
-    ----------
-    args: command line arguments to be run
-
-    Returns
-    -------
-    stdout: return output from command
-    exit(1): If error occurred, exit with error code
-    """
-    print(args) # Print input commands
-    command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True)
-    print(command.stdout) # Print output results
-
-    # Error handling
-    check_error_files() # Check if case.error files exist
-    for line in command.stdout.splitlines(): # Reads stdout and check if any errors occurred
-        if ("ERROR IN OPENING UNIT" or "error: command") in line: # Update this line as more error combinations occur
-            exit(1)
-    return command.stdout
-
 def check_error_files():
     """
     Checks the case.error files from WIEN2k, and if any exists then it will end the process.
@@ -83,28 +61,6 @@ def check_error_files():
                 for line in open(file_name).readlines(): # Print out error for user
                     print(line)
                 exit(1)
-
-
-def replace(source_file_path, pattern, substring):
-    """
-
-    Parameters
-    ----------
-    source_file_path
-    pattern
-    substring
-
-    Returns
-    -------
-
-    """
-    fh, target_file_path = mkstemp()
-    with open(target_file_path, 'w') as target_file, open(source_file_path, 'r') as source_file:
-        for line in source_file:
-            target_file.write(line.replace(pattern, substring))
-    run_terminal_command(f'rm {source_file_path}')
-    run_terminal_command(f'mv {target_file_path} {source_file_path}')
-
 
 def make_new_working_folder():
     # Make the new folder with numerical name
@@ -124,22 +80,50 @@ def make_new_working_folder():
     exit(1)
 
 def auto_run(file_name="JupyterCommands.py"):
-    with open(file_name, "r") as file: # Read in Initialization().main_program() commands
+    with open(file_name, "r") as file:  # Read in Initialization().main_program() commands
         lines = file.readlines()
 
     while len(lines) > 0:
-        exec(lines[0]) # Run each command
-        lines.pop(0) # If command was successful then remove from list. (Assumes will crash if unsuccessful)
-        with open(file_name, "w") as file: # Update file with reduced list
+        exec(lines[0])  # Run each command
+        lines.pop(0)  # If command was successful then remove from list. (Assumes will crash if unsuccessful)
+        with open(file_name, "w") as file:  # Update file with reduced list
             file.writelines(lines)
 
-    if len(lines) == 0: # All commands ran successfully
-        run_terminal_command(f'rm {file_name}')
+    if len(lines) == 0:  # All commands ran successfully
+        os.remove(file_name)
+
+def replace(source_file_path, pattern, substring):
+    """
+
+    Parameters
+    ----------
+    source_file_path
+    pattern
+    substring
+
+    Returns
+    -------
+
+    """
+    fh, target_file_path = mkstemp()
+    with open(target_file_path, 'w') as target_file, open(source_file_path, 'r') as source_file:
+        for line in source_file:
+            target_file.write(line.replace(pattern, substring))
+    os.remove(source_file_path)
+    shutil.move(target_file_path, source_file_path) # Check that this still functions properly. Else target/source switch
+
+def find_encoding(args):
+    command = subprocess.run(args, shell=True, capture_output=True, check=True, text=False)
+    with open('../encoding_stdout', "wb") as f:
+        f.write(command.stdout)
+    with open('../encoding_stderr', "wb") as f:
+        f.write(command.stderr)
+    return
 
 
 class Initialization:
 
-    def __init__(self, rkmax = 7.00, nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000, e_range = (-9.0, 3.5), slurm_job = "run.job"):
+    def __init__(self, rkmax = 7.00, nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000, e_range = (-9.0, 3.5), slurm_job = "run.job", encoding_type = None, errors=None):
         self.case = get_current_folder_name()
         self.rkmax = rkmax
         self.functional = functional
@@ -149,6 +133,36 @@ class Initialization:
         self.complex_calc = False
         self.e_range = e_range
         self.slurm_job = slurm_job
+        self.encoding_type = encoding_type
+        self.errors = errors
+
+    # Helper Functions
+    def run_terminal_command(self, args):
+        """
+        Will run a command in terminal and return its output. Has built in error handling.
+
+        Parameters
+        ----------
+        args: command line arguments to be run
+
+        Returns
+        -------
+        stdout: return output from command
+        exit(1): If error occurred, exit with error code
+        """
+        print(args)  # Print input commands
+        if self.encoding_type is not None:
+            command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True, encoding=self.encoding_type, errors=self.errors)
+        else:
+            command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True, errors=self.errors)
+        print(command.stdout)  # Print output results
+
+        # Error handling
+        check_error_files()  # Check if case.error files exist
+        for line in command.stdout.splitlines(): # Reads stdout and check if any errors occurred
+            if ("ERROR IN OPENING UNIT" or "error: command") in line: # Update this line as more error combinations occur
+                exit(1)
+        return command.stdout
 
     # Functions interacting with WIEN2k
     def convert_cif_to_struct(self):
@@ -160,9 +174,15 @@ class Initialization:
                     shutil.move(file_name, self.case+".cif") # Change this to copy to preserve the system
                     break
         if file_exists(self.case+".cif"):
-            run_terminal_command('x cif2struct')
-            run_terminal_command('setrmt')
-            run_terminal_command(f'cp {self.case}.struct_setrmt {self.case}.struct')
+            try: # TODO: Make this a better check of encoding??
+                self.run_terminal_command('x cif2struct')
+            except:
+                print("Error converting cif: Either WIEN2k command could not be found, or encoding error.")
+                print("If encoding error please run find_encoding() in the jupyter notebook.")
+                find_encoding('x cif2struct')
+                # exit(1)
+            self.run_terminal_command('setrmt')
+            self.run_terminal_command(f'cp {self.case}.struct_setrmt {self.case}.struct')
         else:
             print("No cif structure found")
             exit(1)
@@ -173,24 +193,24 @@ class Initialization:
 
     def initialize_structure(self):
         # Calculate the x nearest neighbours and accept the recommendations of the program
-        run_terminal_command(f'echo {self.nn} | x nn')
+        self.run_terminal_command(f'echo {self.nn} | x nn')
         while len(open(self.case+".struct_nn").readlines()) > 1:
-            run_terminal_command(f'cp {self.case}.struct_nn {self.case}.struct')
-            run_terminal_command(f'echo {self.nn} | x nn')
+            self.run_terminal_command(f'cp {self.case}.struct_nn {self.case}.struct')
+            self.run_terminal_command(f'echo {self.nn} | x nn')
 
-        run_terminal_command('x sgroup')
+        self.run_terminal_command('x sgroup')
         # TODO: Check output for warning, then prompt user to accept the space group
-        symmetry_found = run_terminal_command('x symmetry')
+        symmetry_found = self.run_terminal_command('x symmetry')
         for line in symmetry_found.splitlines():
             if "SPACE GROUP DOES NOT CONTAIN INVERSION" in line: # Is this the best check for complex calcs?
                 print("Calculation is complex")
                 self.complex_calc = True
                 break
-        run_terminal_command(f'cp {self.case}.struct_st {self.case}.struct') # Uses found symmetry group
+        self.run_terminal_command(f'cp {self.case}.struct_st {self.case}.struct') # Uses found symmetry group
 
-        run_terminal_command('echo "y" | instgen_lapw -up') # TODO: Make option to not default to spin up
+        self.run_terminal_command('echo "y" | instgen_lapw -up') # TODO: Make option to not default to spin up
 
-        run_terminal_command(f'{{ echo {self.functional}; echo {self.cutoff_energy}; }} | x lstart')
+        self.run_terminal_command(f'{{ echo {self.functional}; echo {self.cutoff_energy}; }} | x lstart')
 
         # Update case.in1_st to change rkmax
         default_rkmax = "7.00     10   4   ELPA" # TODO: Check if better way to change rkmax, or if the other params change
@@ -203,30 +223,30 @@ class Initialization:
         replace(self.case+".in1_st", default_energy, replace_energy)
 
         # Prepare input file
-        run_terminal_command(f'cp {self.case}.in0_st {self.case}.in0')
+        self.run_terminal_command(f'cp {self.case}.in0_st {self.case}.in0')
         if self.complex_calc:
-            run_terminal_command(f'cp {self.case}.in1_st {self.case}.in1c')
-            run_terminal_command(f'cat {self.case}.in2_ls > {self.case}.in2c')
-            run_terminal_command(f'cat {self.case}.in2_sy >> {self.case}.in2c')
+            self.run_terminal_command(f'cp {self.case}.in1_st {self.case}.in1c')
+            self.run_terminal_command(f'cat {self.case}.in2_ls > {self.case}.in2c')
+            self.run_terminal_command(f'cat {self.case}.in2_sy >> {self.case}.in2c')
         else:
-            run_terminal_command(f'cp {self.case}.in1_st {self.case}.in1')
-            run_terminal_command(f'cat {self.case}.in2_ls > {self.case}.in2')
-            run_terminal_command(f'cat {self.case}.in2_sy >> {self.case}.in2')
+            self.run_terminal_command(f'cp {self.case}.in1_st {self.case}.in1')
+            self.run_terminal_command(f'cat {self.case}.in2_ls > {self.case}.in2')
+            self.run_terminal_command(f'cat {self.case}.in2_sy >> {self.case}.in2')
 
-        run_terminal_command(f'cp {self.case}.inc_st {self.case}.inc')
-        run_terminal_command(f'cp {self.case}.inm_st {self.case}.inm')
-        run_terminal_command(f'cp {self.case}.inq_st {self.case}.inq')
+        self.run_terminal_command(f'cp {self.case}.inc_st {self.case}.inc')
+        self.run_terminal_command(f'cp {self.case}.inm_st {self.case}.inm')
+        self.run_terminal_command(f'cp {self.case}.inq_st {self.case}.inq')
 
         # Generate the k-mesh
-        run_terminal_command(f'{{ echo {self.k_points}; echo 0; }} | x kgen')
-        run_terminal_command('x dstart')
-        run_terminal_command(f'cp {self.case}.in0_std {self.case}.in0')
+        self.run_terminal_command(f'{{ echo {self.k_points}; echo 0; }} | x kgen')
+        self.run_terminal_command('x dstart')
+        self.run_terminal_command(f'cp {self.case}.in0_std {self.case}.in0')
         print("END OF INITIALIZATION FOR CASE " + self.case)
 
     def initialize_spin_polarized(self):
         self.initialize_structure()
-        run_terminal_command('x dstart -up')
-        run_terminal_command('x dstart -dn')
+        self.run_terminal_command('x dstart -up')
+        self.run_terminal_command('x dstart -dn')
 
     def print_info(self):
         # RKmax, Energy k-vector range stored in .in1 or .in1c
