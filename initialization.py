@@ -1,9 +1,10 @@
 # Created: 02/06/2025 (June 2, 2025)
-# Last Edit: 17/06/2025
+# Last Edit: 23/06/2025
 
 import os
 import shutil
 import subprocess
+from pathlib import Path
 from tempfile import mkstemp
 
 # TODO: Create a function that uses the .struct instead of the .cif if it exists
@@ -14,6 +15,8 @@ from tempfile import mkstemp
     # With logbook we should write to the file "CASE #: Failed", then overwrite it afterwards if it succeeded
 # TODO: Make a try and catch case where we try a bunch of different encodings then specify that explicitly.
     # Right now we have commented out two aspects of the code that read the stdout to determine (such as complex)
+# TODO: Make it so that it takes in the input of the cif file, and searches for that file? So you can have different
+    # cif structures in the same project. Then name them accordingly.
 
 # Helper Functions
 def get_current_folder_name():
@@ -62,20 +65,38 @@ def check_error_files():
                     print(line)
                 exit(1)
 
-def make_new_working_folder():
-    # Make the new folder with numerical name
-    for i in range(0, 1000):
-        if os.path.exists(f'./{i}'):
-            pass
-        else:
-            os.mkdir(f'./{i}')
-            # Copy the cif file into this new folder
-            for file_name in os.listdir('.'):
-                if file_name.endswith('.cif'):
-                    shutil.copy(file_name, f'./{i}')
-                    return f'./{i}'
+def make_new_working_folder(cif_file=None):
+    # If user does not specify name, then it will pick the first cif file that it can find.
+    if cif_file is None:
+        for file_name in os.listdir('.'):
+            if file_name.endswith('.cif'):
+                cif_file = file_name
+                print("Warning: Using found cif file: " + cif_file)
+                break
+        if cif_file is None:
             print("No Cif file found")
             exit(1)
+
+    cif_file_no_extension = Path(cif_file).stem # Remove the extension
+
+    # Make the new folder with numerical name
+    for i in range(0, 1000):
+        if os.path.exists(f'./{cif_file_no_extension}_00{i}'):
+            pass
+        elif os.path.exists(f'./{cif_file_no_extension}_0{i}'):
+            pass
+        elif os.path.exists(f'./{cif_file_no_extension}_{i}'):
+            pass
+        else:
+            if i < 10:
+                folder_name = cif_file_no_extension + '_00' + str(i)
+            elif i < 100:
+                folder_name = cif_file_no_extension + '_0' + str(i)
+            else:
+                folder_name = cif_file_no_extension + '_' + str(i)
+            os.mkdir(folder_name)
+            shutil.copy(cif_file, folder_name) # Can also likely be a struct file?
+            return folder_name
     print("Have reached maximum number of files (1000 max). Make a new folder with original cif and start again.")
     exit(1)
 
@@ -123,7 +144,8 @@ def find_encoding(args):
 
 class Initialization:
 
-    def __init__(self, rkmax = 7.00, nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000, e_range = (-9.0, 3.5), slurm_job = "run.job", encoding_type = None, errors=None):
+    def __init__(self, rkmax = 7.00, nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000, e_range = (-9.0, 3.5),
+                 slurm_job = "run.job", cif_file = None, encoding_type = None, errors=None):
         self.case = get_current_folder_name()
         self.rkmax = rkmax
         self.functional = functional
@@ -135,6 +157,7 @@ class Initialization:
         self.slurm_job = slurm_job
         self.encoding_type = encoding_type
         self.errors = errors
+        self.cif_file = cif_file
 
     # Helper Functions
     def run_terminal_command(self, args):
@@ -255,7 +278,7 @@ class Initialization:
         return
 
     def main_program(self):
-        self.change_directory(make_new_working_folder())
+        self.change_directory(make_new_working_folder(self.cif_file))
         self.convert_cif_to_struct()
         self.initialize_structure()
         self.change_directory("../")
@@ -264,7 +287,9 @@ class Initialization:
     def submit_slurm_job(self):
         #os.system('chmod +x run.job')
         #pass_arg = ["./run.job", "CoFeMn", "7"]
-
+        def testfunction():
+            print("Submitting slurm job")
+            return
         #subprocess.check_call(pass_arg)
         return
 

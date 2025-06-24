@@ -1,10 +1,13 @@
 # Created: 05/06/2025 (June 5, 2025)
-# Last Edit: 17/06/2025
+# Last Edit: 23/06/2025
 # Rename to wien2k_jupyter_interface??
 
-from getpass import getpass
+# TODO: Make these import statements local to the functions. This allows us to not force user to make imports if they don't
+    # want to user the server functionality
+
+from getpass import getpass # Create server connection
 from fabric import Connection
-import chardet
+import chardet # Find Encoding
 import os
 
 def create_job_file(slurm_job="run.job", scf_type="Basic", xspec="False", resubmit="False"):
@@ -73,3 +76,8 @@ class JupyterInterface:
                 print("Standard Error in: " + encoding)
         else:
             print("No connection to server")
+
+    def create_job_file(self):
+        # Make it so you can name the file whatever you want.
+        # Then attach that name to the Initialization() command, then it will search for that and copy it in
+        return
