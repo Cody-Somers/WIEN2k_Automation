@@ -1,5 +1,5 @@
 # Created: 05/06/2025 (June 5, 2025)
-# Last Edit: 23/06/2025
+# Last Edit: 24/06/2025
 # Rename to wien2k_jupyter_interface??
 
 # TODO: Make these import statements local to the functions. This allows us to not force user to make imports if they don't
@@ -10,11 +10,16 @@ from fabric import Connection
 import chardet # Find Encoding
 import os
 
-def create_job_file(slurm_job="run.job", scf_type="Basic", xspec="False", resubmit="False"):
-    # This will hold the info for a job file. So in jupyter notebook they can create the auto_run, but they can also create
-    # a job file. They will have to upload then
-
-    return
+def configure_xspec(start, end, edge):
+    # Helper function to print out the xspec_config parameter
+    # array
+    array = ["1s","2s","2p","3s","3p","3d","4s","4p","4d","4f"]
+    n_arr = [1,2,2,3,3,3,4,4,4,4]
+    l_arr = [0,0,1,0,1,2,0,1,2,3]
+    inside = ""
+    for i in range(start,end+1):
+        inside += str(i)+',"'+edge+'",'
+    print("[" + inside + "]")
 
 class JupyterInterface:
     """
@@ -76,8 +81,3 @@ class JupyterInterface:
                 print("Standard Error in: " + encoding)
         else:
             print("No connection to server")
-
-    def create_job_file(self):
-        # Make it so you can name the file whatever you want.
-        # Then attach that name to the Initialization() command, then it will search for that and copy it in
-        return
