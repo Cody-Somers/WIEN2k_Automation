@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path
 from tempfile import mkstemp
 
-# TODO: Create a function that uses the .struct instead of the .cif if it exists
 # TODO: Create a function that uses the built in init to see what Wien2k recommends for input parameters
 # TODO: Create a function that checks for warnings and outputs them to the user
 # TODO: Figure how to replace gmax
@@ -15,8 +14,6 @@ from tempfile import mkstemp
     # With logbook we should write to the file "CASE #: Failed", then overwrite it afterwards if it succeeded
 # TODO: Make a try and catch case where we try a bunch of different encodings then specify that explicitly.
     # Right now we have commented out two aspects of the code that read the stdout to determine (such as complex)
-# TODO: Make it so that it takes in the input of the cif file, and searches for that file? So you can have different
-    # cif structures in the same project. Then name them accordingly.
 
 
 ###################################################################################################################
@@ -195,7 +192,8 @@ class Initialization:
             print("Invalid xspec or resubmit type")
             exit(1)
         if self.sbatch is not None:
-            with open(self.case+".job", 'w') as job:
+            #with open(self.case+".job", 'w') as job:
+            with open("run.job", 'w') as job:
                 job.write(f"#!/bin/bash\n") # Header
                 job.write(self.sbatch + '\n') # SBATCH arguments #TODO: Auto create the name of the job that submits
                 job.write(f'scf_type="{self.scf_type}"\n')
@@ -234,8 +232,8 @@ class Initialization:
         return
 
     def submit_slurm_job(self):
-        # TODO: Rename back to run.job
-        self.run_terminal_command(f'sbatch {self.case}.job')
+        #self.run_terminal_command(f'sbatch {self.case}.job')
+        self.run_terminal_command(f'sbatch run.job')
         return
 
 
@@ -375,6 +373,7 @@ def find_encoding(args):
 def job_file_script_no_header():
     # Last updated Jun 24, 2025
     # TODO: Give ability to change the convergence criteria
+    # TODO: Remove the section of spin polarized xspec. They have been merged into one file (or else have different naming schemes?
     job = """
 # Gets the hosts and puts it into the .machines file.
 srun hostname -s  >slurm.hosts
@@ -488,7 +487,7 @@ run_SCF
 
 def xspec_file_script_no_header():
     # Last updated Jun 28, 2025
-    xspec = """
+    xspec = r"""
 ##########
 # Not user parameters
 edge_arr=("1s" "2s" "2p" "3s" "3p" "3d" "4s" "4p" "4d" "4f")
