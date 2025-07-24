@@ -14,6 +14,8 @@ from tempfile import mkstemp
     # With logbook we should write to the file "CASE #: Failed", then overwrite it afterwards if it succeeded
 # TODO: Make a try and catch case where we try a bunch of different encodings then specify that explicitly.
     # Right now we have commented out two aspects of the code that read the stdout to determine (such as complex)
+# TODO: Give the user the option to upload their own job file instead of our own.
+# TODO: Create a logbook that shows the outcome of files. As in, this calculation converged after x cycles, took x time
 
 
 ###################################################################################################################
@@ -178,7 +180,7 @@ class Initialization:
         self.initialize_structure()
         self.create_job_file()
         self.create_xspec_file()
-        self.submit_slurm_job()
+        #self.submit_slurm_job() # TODO: Turn this back on
         self.change_directory("../")
         # Change back out of directory???
 

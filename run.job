@@ -13,10 +13,12 @@
 scf_type="PlusU" # Basic, PlusU, SpinPolar
 xspec="True" # Either True or False
 resubmit="True" # Either True or False
+# TODO: Check the system time after start, so it doesn't restart if you have ran for only a couple minutes. Or limit it to 3 attempts
 # REMEMBER: For these you will also need to have the xspec_export.sh or xspec_export_spin_polarized.sh files
 
 setenv SCRATCH /home/somersc0/scratch # Set this to your personal scratch
-
+# TODO: Put the echo back so that it goes into the slurm output.
+# TODO: Can replace the scratch with $SCRATCH so it will get it from Wien2k
 # Gets the hosts and puts it into the .machines file.
 srun hostname -s  >slurm.hosts
 rm .machines
