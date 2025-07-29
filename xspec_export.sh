@@ -9,9 +9,10 @@ spin_polarized="False"
 ABS_FILE_TEMPLATE="CoCrFeMnNi_O!atom!_ABS_GS"
 EMIS_FILE_TEMPLATE="CoCrFeMnNi_O!atom!_EMIS_GS"
 
+fermi_file="fermi_energy"
 
 ##########
-# Not user parameters
+# END of user parameters
 edge_arr=("1s" "2s" "2p" "3s" "3p" "3d" "4s" "4p" "4d" "4f")
 n_arr=(1 2 2 3 3 3 4 4 4 4)
 l_arr=(0 0 1 0 1 2 0 1 2 3)
@@ -23,7 +24,6 @@ mkdir -p $export_dir
 
 # Find and separate all of the binding energies for the system
 #BINDING_FILE="binding_energies"
-fermi_file="fermi_energy"
 # 1.ATOM # TODO: Fix the format to get binding energies for different edges. Maybe leave for python h5
 # :1S, 2P, 2PP, 3D, 3DD
 #: > "${export_dir}/${BINDING_FILE}.txt"
@@ -64,7 +64,7 @@ ${atom_list[atom_index]}         (atom)
 ${n_arr[edge_index]}               (n core)
 ${l_arr[edge_index]}               (l core)
 0,0.5,0.5	(split, Int1, Int2)
--30,0.02,10	 (EMIN,DE,EMAX in eV)
+-50,0.02,10	 (EMIN,DE,EMAX in eV)
 EMIS            (type of spectrum)
 0.50            (S)
 0.5             (gamma0)
@@ -95,7 +95,7 @@ ${atom_list[atom_index]}         (atom)
 ${n_arr[edge_index]}              (n core)
 ${l_arr[edge_index]}               (l core)
 0,0.5,0.5	(split, Int1, Int2)
--10,0.02,30	 (EMIN,DE,EMAX in eV)
+-10,0.02,50	 (EMIN,DE,EMAX in eV)
 ABS             (type of spectrum)
 0.50            (S)
 0.5             (gamma0)

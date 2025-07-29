@@ -180,7 +180,7 @@ class Initialization:
         self.initialize_structure()
         self.create_job_file()
         self.create_xspec_file()
-        #self.submit_slurm_job() # TODO: Turn this back on
+        self.submit_slurm_job() # TODO: Turn this back on
         self.change_directory("../")
         # Change back out of directory???
 
@@ -196,6 +196,7 @@ class Initialization:
         if self.sbatch is not None:
             #with open(self.case+".job", 'w') as job:
             with open("run.job", 'w') as job:
+                # TODO: Remove the user parameters and make this section automated.
                 job.write(f"#!/bin/bash\n") # Header
                 job.write(self.sbatch + '\n') # SBATCH arguments #TODO: Auto create the name of the job that submits
                 job.write(f'scf_type="{self.scf_type}"\n')
@@ -210,6 +211,7 @@ class Initialization:
 
     def create_xspec_file(self):
         # TODO: Add some more checks for valid inputs
+        # TODO: Make this automated? Make lookup table and calculate the orbitals based on what we want.
         with open("xspec_export.sh", 'w') as f:
             f.write(f"#!/bin/bash\n")  # Header
             f.write(f"set -e\n")
@@ -229,6 +231,7 @@ class Initialization:
                 f.write(f'spin_polarized="False"\n')
             f.write(f'ABS_FILE_TEMPLATE="{self.case}_ATOM!atom!_ABS"\n')
             f.write(f'EMIS_FILE_TEMPLATE="{self.case}_ATOM!atom!_EMIS"\n')
+            f.write(f'fermi_file="{self.case}_fermi_energy"')
             f.write(xspec_file_script_no_header())
         os.system('chmod +x xspec_export.sh')
         return
@@ -375,7 +378,6 @@ def find_encoding(args):
 def job_file_script_no_header():
     # Last updated Jun 24, 2025
     # TODO: Give ability to change the convergence criteria
-    # TODO: Remove the section of spin polarized xspec. They have been merged into one file (or else have different naming schemes?
     job = """
 # Gets the hosts and puts it into the .machines file.
 srun hostname -s  >slurm.hosts
@@ -421,8 +423,8 @@ spinpolar_xspec () {
   x lapw2 -p -qtl -dn
 
   # Calculate the xspec files.
-  chmod +x xspec_export_spin_polarized.sh
-  ./xspec_export_spin_polarized.sh
+  chmod +x xspec_export.sh
+  ./xspec_export.sh
 }
 
 basic_SCF () {
@@ -491,7 +493,7 @@ def xspec_file_script_no_header():
     # Last updated Jun 28, 2025
     xspec = r"""
 ##########
-# Not user parameters
+# END of user parameters
 edge_arr=("1s" "2s" "2p" "3s" "3p" "3d" "4s" "4p" "4d" "4f")
 n_arr=(1 2 2 3 3 3 4 4 4 4)
 l_arr=(0 0 1 0 1 2 0 1 2 3)
@@ -503,7 +505,6 @@ mkdir -p $export_dir
 
 # Find and separate all of the binding energies for the system
 #BINDING_FILE="binding_energies"
-fermi_file="fermi_energy"
 # 1.ATOM # TODO: Fix the format to get binding energies for different edges. Maybe leave for python h5
 # :1S, 2P, 2PP, 3D, 3DD
 #: > "${export_dir}/${BINDING_FILE}.txt"
@@ -544,7 +545,7 @@ ${atom_list[atom_index]}         (atom)
 ${n_arr[edge_index]}               (n core)
 ${l_arr[edge_index]}               (l core)
 0,0.5,0.5	(split, Int1, Int2)
--30,0.02,10	 (EMIN,DE,EMAX in eV)
+-50,0.02,10	 (EMIN,DE,EMAX in eV)
 EMIS            (type of spectrum)
 0.50            (S)
 0.5             (gamma0)
@@ -575,7 +576,7 @@ ${atom_list[atom_index]}         (atom)
 ${n_arr[edge_index]}              (n core)
 ${l_arr[edge_index]}               (l core)
 0,0.5,0.5	(split, Int1, Int2)
--10,0.02,30	 (EMIN,DE,EMAX in eV)
+-10,0.02,50	 (EMIN,DE,EMAX in eV)
 ABS             (type of spectrum)
 0.50            (S)
 0.5             (gamma0)

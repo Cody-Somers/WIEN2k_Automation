@@ -6,11 +6,15 @@
     # want to user the server functionality
 
 from getpass import getpass # Create server connection
+
+import h5py
+import numpy as np
 from fabric import Connection
 import chardet # Find Encoding
 import os
 from pathlib import Path
 import subprocess
+import time # For testing purposes only
 
 def configure_xspec(start, end, edge):
     # Helper function to print out the xspec_config parameter
@@ -117,48 +121,70 @@ class JupyterInterface:
         else:
             print("No connection to server")
 
-    def download_info(self, overwrite = False): #TODO: Create an overwrite feature
+    def download_info(self, overwrite = False):
         # TODO: Only download data if we know that it has converged. (Can be based on the xspec folder perhaps)
+        # TODO: Could this be implemented by using a bash script that does it all at once. Create a local hash that sees whether it needs to download new folders. No need to check local versions.
+        #rsync -vaP somersc0@cedar.alliancecan.ca:/home/somersc0/projects/def-moewes/somersc0/CoFeMnPlusU/PlusUOnlyCo/xspec_export /Users/cas003/Downloads/scratch
         #subprocess.run(f'scp -r somersc0@cedar.alliancecan.ca:/home/somersc0/projects/def-moewes/somersc0/Test/TeakTest/TiCv2_006 ./', shell=True)
 
 
         if self.server_connection is not None:
             with self.server_connection as c: # This will open and close connection automatically
+                print("Starting download")
+                start_time = time.perf_counter()
+
                 with c.cd(self.working_directory):
                     folder_name = Path(self.cif_file).stem
                     #folders = c.run(f'ls | grep {folder_name}_')
                     #c.run(f'find -type d | grep {folder_name} > foldernames.txt')
                     c.run(f'find ~+ -type f | grep {folder_name}_ > foldernames.txt')
                     c.get(f"{self.working_directory}/foldernames.txt")
+                    c.get(f"{self.working_directory}/checksums.txt")
                     current_folder = os.getcwd()
                     storage_folder = f"StorageFor{folder_name}"
                     Path(storage_folder).mkdir(exist_ok=True)
+
                 with open("foldernames.txt", 'r') as f:
                     for line in f:
                         # TODO: Might break in windows with the different slash directions
-                        Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
-                        c.get(line.strip(),current_folder + '/' + storage_folder + '/' + Path(line.strip()).parent.name + '/' + Path(line.strip()).name)
+                        # TODO: Figure out how to check if it changed from previous versions. So, using md5sum likely.
+                        # TODO: Create the datastructure at the same time that we download info
+                            # We generate the md5sum on our local computer, and upload that
+                            # Or see if we can md5sum the entire directory
+                            # Likely better to make it as a tar and get a single file. Then easy to compare md5sum likely
+                        if overwrite:
+                            Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
+                            c.get(line.strip(), current_folder + '/' + storage_folder + '/' + Path(line.strip()).parent.name + '/' + Path(line.strip()).name)
+                        else:
+                            if not os.path.exists(current_folder + '/' + storage_folder + '/' + Path(line.strip()).parent.name + '/' + Path(line.strip()).name):
+                                Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
+                                c.get(line.strip(),current_folder + '/' + storage_folder + '/' + Path(line.strip()).parent.name + '/' + Path(line.strip()).name)
+                            else:
+                                print("File already exists")
 
+                end_time = time.perf_counter()
+                elapsed_time = end_time - start_time
+                print(f"Execution time: {elapsed_time:.4f} seconds")
                 print("Download complete")
-
-
-                # Get the folder name
-                # Check if file exists
-                # Get the file name
-                # Copy to
-
-                #print(self.working_directory + '/' + Path(self.cif_file).stem + "_006")
-                #c.get(self.working_directory + '/' + Path(self.cif_file).stem + "_006",'./')
-                #folder_name = Path(self.cif_file).stem + '_006'
-                #Path(folder_name).mkdir(exist_ok=True)
-                #c.get('/home/somersc0/projects/def-moewes/somersc0/Test/TeakTest/TiCv2_006/nn.def','/Users/cas003/PycharmProjects/JupyterWien2k/TiCv2_006/nn.def')
-                #c.get('/home/somersc0/projects/def-moewes/somersc0/Test/TeakTest/TiCv2_006/')
-                # So error in putting it because the local directory is a directory?{?? Bruv
-
-                # Things we want to get
         else:
             print("No connection to server")
 
+    def convert_to_hdf5(self):
+        with h5py.File(Path(self.cif_file).stem + ".hdf5", 'w') as file: # Main file to store all info
+            # Iterate over all folders in the storage
+            case = file.create_group("ToCv2_006")
+
+            # Parameters to read from files
+            parameters = case.create_group("parameters")
+            parameters.create_dataset("fermi_energy", shape=1, dtype='f') # Make these attributes?
+            parameters.create_dataset("Emin/Emax",shape=(2,1), dtype='f')
+
+            # If they exist, collect the xspec_export folder
+            xspec = case.create_group("xspec")
+
+            # If they exist, collect the dos
+            dos = case.create_group("dos")
+            print("Converting to HDF5")
 
 # H5 Data Storage
 """
