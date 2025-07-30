@@ -14,6 +14,7 @@ import chardet # Find Encoding
 import os
 from pathlib import Path
 import subprocess
+import re
 import time # For testing purposes only
 
 def configure_xspec(start, end, edge):
@@ -124,6 +125,7 @@ class JupyterInterface:
     def download_info(self, overwrite = False):
         # TODO: Only download data if we know that it has converged. (Can be based on the xspec folder perhaps)
         # TODO: Could this be implemented by using a bash script that does it all at once. Create a local hash that sees whether it needs to download new folders. No need to check local versions.
+        # TODO: Issue if people want to manually download their data and then convert to h5...
         #rsync -vaP somersc0@cedar.alliancecan.ca:/home/somersc0/projects/def-moewes/somersc0/CoFeMnPlusU/PlusUOnlyCo/xspec_export /Users/cas003/Downloads/scratch
         #subprocess.run(f'scp -r somersc0@cedar.alliancecan.ca:/home/somersc0/projects/def-moewes/somersc0/Test/TeakTest/TiCv2_006 ./', shell=True)
 
@@ -144,23 +146,74 @@ class JupyterInterface:
                     storage_folder = f"StorageFor{folder_name}"
                     Path(storage_folder).mkdir(exist_ok=True)
 
+                if overwrite: # This will cause issues until we solve only importing
+                    h5_flag = 'w'
+                else:
+                    h5_flag = 'a'
                 with open("foldernames.txt", 'r') as f:
-                    for line in f:
-                        # TODO: Might break in windows with the different slash directions
-                        # TODO: Figure out how to check if it changed from previous versions. So, using md5sum likely.
-                        # TODO: Create the datastructure at the same time that we download info
-                            # We generate the md5sum on our local computer, and upload that
-                            # Or see if we can md5sum the entire directory
-                            # Likely better to make it as a tar and get a single file. Then easy to compare md5sum likely
-                        if overwrite:
-                            Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
-                            c.get(line.strip(), current_folder + '/' + storage_folder + '/' + Path(line.strip()).parent.name + '/' + Path(line.strip()).name)
-                        else:
-                            if not os.path.exists(current_folder + '/' + storage_folder + '/' + Path(line.strip()).parent.name + '/' + Path(line.strip()).name):
+                    with h5py.File(Path(self.cif_file).stem + ".hdf5", 'w') as file:  # Main file to store all info #TODO: Change to h5_flag
+                        for line in f:
+                            # TODO: Might break in windows with the different slash directions
+                            # TODO: Figure out how to check if it changed from previous versions. So, using md5sum likely.
+                            # TODO: Create the datastructure at the same time that we download info
+                                # We generate the md5sum on our local computer, and upload that
+                                # Or see if we can md5sum the entire directory
+                                # Likely better to make it as a tar and get a single file. Then easy to compare md5sum likely
+
+                            # The location of the file on the local computer and where we want to put it.
+                            file_location = current_folder + '/' + storage_folder + '/' + Path(line.strip()).parent.name + '/' + Path(line.strip()).name
+                            if overwrite:
                                 Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
-                                c.get(line.strip(),current_folder + '/' + storage_folder + '/' + Path(line.strip()).parent.name + '/' + Path(line.strip()).name)
+                                c.get(line.strip(), file_location)
                             else:
-                                print("File already exists")
+                                if not os.path.exists(file_location):
+                                    Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
+                                    c.get(line.strip(),file_location)
+                                else:
+                                    #print("File already exists")
+                                    pass
+
+                            # TODO: Create something that uses grep to find the parameters and stores in a file before we h5 it???
+                            # Check if group exists, if it does then we can delete it and overwrite it with new data???
+                            if Path(line.strip()).suffix == '.in1':  # This is for RKMax, Emin/Emax
+                                with open(file_location, 'r') as in1:
+                                    in1_lines = in1.readlines()
+                                    rkmax = in1_lines[1].split()[0] # Get the second line, first value, which is rkmax
+                                    emin = in1_lines[-1].split()[3] # Last line, second value
+                                    emax = in1_lines[-1].split()[4] # Last line, third value
+                                file.create_dataset(f"{Path(line.strip()).stem}/parameters/rkmax",data=rkmax)
+                                file.create_dataset(f"{Path(line.strip()).stem}/parameters/inputEnergyRange", data=[emin, emax])
+                            if Path(line.strip()).suffix == '.in2':  # GMAX
+                                print(line)
+                            if Path(line.strip()).suffix == '.klist':  # Get the number of k points, as well as k grid
+                                print(line)
+                            if Path(line.strip()).suffix == '.outputd':  # Has everything. gmin, gmax, lattice constants, atoms in unit cell, rkmax
+                                print(line)
+                            if Path(line.strip()).suffix == '.scf2':  # This is for :GAP, :FER, high/low energy sep
+                                with open(file_location, 'r') as scf2:
+                                    scf2_lines = scf2.readlines()
+                                    for i in scf2_lines:
+                                        if re.search(":GAP \(global\)",i): # TODO: Spin polarized has GAP (this spin)
+                                            gap_ry = i.split()[3]
+                                            gap_ev = i.split()[6]
+                                            file.create_dataset(f"{Path(line.strip()).stem}/parameters/bandgap",data=[gap_ry, gap_ev])
+                                        elif re.search(":FER",i):
+                                            fermi = i.split()[9]
+                                            file.create_dataset(f"{Path(line.strip()).stem}/parameters/fermi",data=fermi)
+                                        elif re.search("Energy to separate low and high energystates",i):
+                                            low_high_sep = i.split()[7]
+                                            file.create_dataset(f"{Path(line.strip()).stem}/parameters/energystatesSeparation", data=low_high_sep)
+
+                            if Path(line.strip()).suffix == '.scfc':  # Has the energy of the core states, 1S, 2S, 2P etc.
+                                print(line)
+
+                with h5py.File(Path(self.cif_file).stem + ".hdf5", 'r') as file:
+                    #for name in file:
+                    #    print(name)
+                    def printname(name):
+                        print(name)
+                    file.visit(printname)
+
 
                 end_time = time.perf_counter()
                 elapsed_time = end_time - start_time

@@ -180,7 +180,7 @@ class Initialization:
         self.initialize_structure()
         self.create_job_file()
         self.create_xspec_file()
-        self.submit_slurm_job() # TODO: Turn this back on
+        # self.submit_slurm_job() # TODO: Turn this back on
         self.change_directory("../")
         # Change back out of directory???
 
