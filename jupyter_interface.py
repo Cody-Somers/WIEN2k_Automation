@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import subprocess
 import re
+import hashlib
 import time # For testing purposes only
 
 def configure_xspec(start, end, edge):
@@ -27,6 +28,15 @@ def configure_xspec(start, end, edge):
     for i in range(start,end+1):
         inside += str(i)+',"'+edge+'",'
     print("[" + inside + "]")
+
+
+def md5(fname):
+    hash_md5 = hashlib.md5()
+    with open(fname, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
 
 class JupyterInterface:
     """
@@ -254,34 +264,87 @@ class JupyterInterface:
             dos = case.create_group("dos")
             print("Converting to HDF5")
 
-    def download_info(self, overwrite = False):
+    def download_info(self, overwrite = False, download_all = False):
         if self.server_connection is not None:
             with self.server_connection as c:  # This will open and close connection automatically
                 print("Starting download")
                 start_time = time.perf_counter()
 
-                with c.cd(self.working_directory):
-                    folder_name = Path(self.cif_file).stem
-                    c.run(f'find ~+ -type f | grep {folder_name}_ > foldernames.txt')
-                    c.get(f"{self.working_directory}/foldernames.txt")
-
+                # Make storage folder
+                folder_name = Path(self.cif_file).stem
                 current_folder = os.getcwd()
                 storage_folder = f"StorageFor{folder_name}"
                 Path(storage_folder).mkdir(exist_ok=True)
 
-                with open("foldernames.txt", 'r') as f:
-                    for line in f:
+                # Make hash table
+                with open("hash_table.txt", "w") as hash_table:
+                    for dirpath, dirnames, files in os.walk(storage_folder):
+                        for file in files:
+                            #s = f"{file} + md5({dirpath} + '/' + file"
+                            s = file + md5(dirpath + "/" + file) # Note this is our md5 function to get contents
+                            hash_value = hashlib.md5(s.encode()).hexdigest() # This uses general function to get filename in string
+                            hash_table.write(hash_value)
+                            # So we are hashing contents of file, then adding name to the front and hashing that string.
+                            # Co_000.inm gives hash 1e56p (all identical .inm files will give the same hash however)
+                            # Then we hash(Co_000.inm1e56p) and get a new hash
+                            # This allows us to tell if a specific file has changed in contents or name.
+
+                            #print("File" + file + " converted locally with hash " + hash_value)
+                c.put("hash_table.txt", self.working_directory) # Throw it onto server
+
+                # Test if we find the value we want. Remove
+                with open("hash_table.txt", "r") as hash_table:
+                    if "5be6ce84" in hash_table.read():
+                        print("We found it")
+
+
+                # Generate string to only find the files that we want directly from the server
+                files_we_want = ['.in1', '.in2', '.klist', '.outputd', '.scf2', '.scfc', '.txspec']
+                bash_command_middle = ""
+                for index, extension in enumerate(files_we_want):
+                    if index != len(files_we_want)-1: # Go until last index
+                        bash_command_middle += f"-name '*{extension}' -o "
+                    else:
+                        bash_command_middle += f"-name '*{extension}'"
+                bash_command = "find ~+ -type f \( " + bash_command_middle + f" \) | grep {folder_name}_ > foldernames.txt"
+
+                # On server find all files
+                with c.cd(self.working_directory):
+                    # Find all files in the directory
+                    if download_all: #TODO: Implement this so that it actually pulls all cases
+                        c.run(f'find ~+ -type f | grep {folder_name}_ > foldernames.txt')
+                        c.get(f"{self.working_directory}/foldernames.txt")
+                    else:
+                        c.run(bash_command)
+
+
+                # On server check to see which files have been changed compared to the ones downloaded locally
+                self.check_file_modified()
+                c.get(f"{self.working_directory}/foldernames_updated.txt")
+
+                # Locally, sort through all the files and find the ones that we want
+                with open("foldernames_updated.txt", 'r') as f:
+                    for file_location_server in f:
                         # TODO: Might break in windows with the different slash directions
                         # TODO: Figure out how to check if it changed from previous versions. So, using md5sum likely.
 
                         # The location of the file on the local computer and where we want to put it.
                         # NOTE: We use strip to remove the \n character at the end of the line in the txt file
-                        file_location = current_folder + '/' + storage_folder + '/' + Path(line.strip()).parent.name + '/' + Path(line.strip()).name
-                        files_we_want = ['.in1','.in2','.klist','.outputd','.scf2','.scfc','.txspec']
-                        if Path(line.strip()).suffix in files_we_want:  # This is for RKMax, Emin/Emax
-                            Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
-                            c.get(line.strip(), file_location)
-                            self.convert_to_hdf5(file_location)
+                        file_location_local = current_folder + '/' + storage_folder + '/' + Path(file_location_server.strip()).parent.name + '/' + Path(file_location_server.strip()).name
+
+                        # Check if it is a file we want to download
+                        # files we want can go here again later
+                        #if Path(file_location_server.strip()).suffix in files_we_want:
+                            # Check hash table to see if it has changed
+                            # TODO: Put hash command into a file and run it on server. c.run() is waaay too slow
+                            #print("This is file name " + file_location_server.strip())
+                            #c.run(f'(echo -n "{Path(file_location_server.strip()).name}" ; echo -n "$(md5sum {file_location_server.strip()})") '
+                            #      f'| cut -f 1 -d " " | tr -d "\n" | md5sum | cut -f 1 -d " " | tr -d "\n" > FILE')
+                            # Will cause issues as second iteration will see these files and make TiCv2_003.in1.md5.md5 etc.
+                            # (echo -n "TiCv2_023.in1" ; echo -n "$(md5sum TiCv2_023.in1)") | cut -f 1 -d " " | tr -d '\n' | md5sum | cut -f 1 -d " " | tr -d '\n' > "TiCv2_023.md5"
+                        Path(storage_folder + '/' + Path(file_location_server.strip()).parent.name).mkdir(exist_ok=True)
+                        c.get(file_location_server.strip(), file_location_local)
+                        self.convert_to_hdf5(file_location_local)
                 end_time = time.perf_counter()
                 elapsed_time = end_time - start_time
                 print(f"Execution time: {elapsed_time:.4f} seconds")
@@ -332,6 +395,16 @@ class JupyterInterface:
                 h5_file.create_dataset(dataset_name, **kwargs)
             else:
                 h5_file.create_dataset(dataset_name, **kwargs)
+
+    def check_file_modified(self):
+        if self.server_connection is not None:
+            with self.server_connection as c:  # This will open and close connection automatically
+                c.put("check_file_modified.sh", self.working_directory)
+                with c.cd(self.working_directory):
+                    c.run('chmod +x check_file_modified.sh')
+                    c.run('./check_file_modified.sh')
+        else:
+            print("No connection to server")
 
 # H5 Data Storage
 """
