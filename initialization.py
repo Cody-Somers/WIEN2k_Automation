@@ -185,7 +185,7 @@ class Initialization:
         # Change back out of directory???
 
     def create_job_file(self):
-        valid_scf_types = ["Basic", "PlusU", "SpinPolar"]
+        valid_scf_types = ["Basic", "PlusU", "SpinPolar", "ForceMin"]
         valid_boolean = ["True", "False"] # TODO: Make this an actual boolean??
         if self.scf_type not in valid_scf_types:
             print("Invalid scf type")

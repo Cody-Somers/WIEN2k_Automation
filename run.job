@@ -10,7 +10,7 @@
 #SBATCH --account=def-moewes
 
 # Capitalization is important here. Pay attention to the listed options available.
-scf_type="PlusU" # Basic, PlusU, SpinPolar
+scf_type="PlusU" # Basic, PlusU, SpinPolar, ForceMin
 xspec="True" # Either True or False
 resubmit="True" # Either True or False
 # TODO: Check the system time after start, so it doesn't restart if you have ran for only a couple minutes. Or limit it to 3 attempts
@@ -82,6 +82,11 @@ spinpolar_SCF() {
   runsp_lapw -NI -p -ec 0.00001 -cc 0.01 -i 200
 }
 
+forceMinimization_SCF() {
+  # run_lapw -NI -p -fc 1 -i 600
+  run_lapw -min -NI -p -fc 0.5 -ec 0.0001 -cc 0.01 -i 600
+}
+
 choose_SCF_type() {
   if [[ "$scf_type" == "Basic" ]]; then
     basic_SCF
@@ -89,6 +94,8 @@ choose_SCF_type() {
     plusU_SCF
   elif [[ "$scf_type" == "SpinPolar" ]]; then
     spinpolar_SCF
+  elif [[ "$scf_type" == "ForceMin" ]]; then
+    forceMinimization_SCF
   fi
 }
 
@@ -99,6 +106,8 @@ choose_xspec_type() {
     spinpolar_xspec
   elif [[ "$scf_type" == "SpinPolar" ]]; then
     spinpolar_xspec
+  elif [[ "$scf_type" == "ForceMin" ]]; then
+    basic_xspec # Does this actually work? Or do we have to redo an SCF cycle again.
   fi
 }
 
