@@ -7,9 +7,9 @@
 
 from getpass import getpass # Create server connection
 
-import h5py
+import h5py # To convert to h5
 import numpy as np
-from fabric import Connection
+from fabric import Connection # To get python notebook connection to server
 import chardet # Find Encoding
 import os
 from pathlib import Path
@@ -17,33 +17,19 @@ import subprocess
 import re
 import hashlib
 import time # For testing purposes only
+import datetime # For logbook
 
-def configure_xspec(start, end, edge):
-    # Helper function to print out the xspec_config parameter
-    # array
-    array = ["1s","2s","2p","3s","3p","3d","4s","4p","4d","4f"]
-    n_arr = [1,2,2,3,3,3,4,4,4,4]
-    l_arr = [0,0,1,0,1,2,0,1,2,3]
-    inside = ""
-    for i in range(start,end+1):
-        inside += str(i)+',"'+edge+'",'
-    print("[" + inside + "]")
-
-
-def md5(fname):
-    hash_md5 = hashlib.md5()
-    with open(fname, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            hash_md5.update(chunk)
-    return hash_md5.hexdigest()
-
+##### Main class
 
 class JupyterInterface:
     """
     Hela
     """
+
     def __init__(self, cif_file):
         with open("JupyterCommands.py", "w") as file:
+            pass
+        with open("logbook.txt", "a") as file:
             pass
         self.working_directory = None
         self.server_name = None
@@ -405,6 +391,31 @@ class JupyterInterface:
                     c.run('./check_file_modified.sh')
         else:
             print("No connection to server")
+
+
+
+
+### Helper Functions
+
+def configure_xspec(start, end, edge):
+    # Helper function to print out the xspec_config parameter
+    # array
+    array = ["1s","2s","2p","3s","3p","3d","4s","4p","4d","4f"]
+    n_arr = [1,2,2,3,3,3,4,4,4,4]
+    l_arr = [0,0,1,0,1,2,0,1,2,3]
+    inside = ""
+    for i in range(start,end+1):
+        inside += str(i)+',"'+edge+'",'
+    print("[" + inside + "]")
+
+
+def md5(fname):
+    hash_md5 = hashlib.md5()
+    with open(fname, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
 
 # H5 Data Storage
 """

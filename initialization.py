@@ -15,20 +15,62 @@ from tempfile import mkstemp
 # TODO: Make a try and catch case where we try a bunch of different encodings then specify that explicitly.
     # Right now we have commented out two aspects of the code that read the stdout to determine (such as complex)
 # TODO: Give the user the option to upload their own job file instead of our own.
-# TODO: Create a logbook that shows the outcome of files. As in, this calculation converged after x cycles, took x time
+# TODO: Finish tasks
+# TODO: Make the job submission SBATCH stuff automatic
+# TODO: Create function that finds relationship based on number of cpus and the memory required based on in-eq sites
+    # On top of that, automatically find the ntasks-required for a job script.
 
 
 ###################################################################################################################
 # Main Function
 
-
 class Initialization:
 
-    def __init__(self, rkmax = 7.00, nn = 3, functional = "PBE", cutoff_energy = -6, k_points = 1000, e_range = (-9.0, 3.5), # For initialization
-                 cif_file = None, encoding_type = None, errors=None, # For initialization
-                 sbatch = None, scf_type = "Basic", xspec = "True", resubmit = "False", scratch = None, # run.job file
-                 xspec_config=None): # xspec_export.sh file
+    # Based on orange X-Ray Data Booklet from Berkeley
+    PeriodicTable = {
+        "H": ["1s"],
+        "He": ["1s"],
+        "Li": ["1s"],
+        "Be": ["1s"],
+        "B": ["1s"],
+        "C": ["1s"],
+        "N": ["1s","2s"],
+        "O": ["1s","2s"],
+        "F": ["1s"],
+        "Ne": ["1s","2s","2p"],
+        "Na": ["1s","2s","2p"],
+        "Mg": ["1s","2s","2p"],
+        "Al": ["1s","2s","2p"],
+        "Si": ["1s","2s","2p"],
+        "P": ["1s","2s","2p"],
+        "S": ["1s","2s","2p"],
+        "Cl": ["1s","2s","2p"],
+        "Ar": ["1s","2s","2p","3s","3p"],
+        "K": ["1s","2s","2p","3s","3p"],
+        "Ca": ["1s","2s","2p","3s","3p"],
+        "Sc": ["1s","2s","2p","3s","3p"],
+        "Ti": ["1s","2s","2p","3s","3p"],
+        "V": ["1s","2s","2p","3s","3p"],
+        "Cr": ["1s","2s","2p","3s","3p"],
+        "Mn": ["1s","2s","2p","3s","3p"],
+        "Fe": ["1s","2s","2p","3s","3p"],
+        "Co": ["1s","2s","2p","3s","3p"],
+        "Ni": ["1s","2s","2p","3s","3p"],
+        "Cu": ["1s","2s","2p","3s","3p"],
+        "1s": ["H","He","Li","Be","B","C","N","O","F"],
+        "2s": ["H","He","Li","Be","B","C","N","O"]
+    } # TODO: Nope, rather just ask for them to input element species and then edge.
+    #edge_arr = ("1s" "2s" "2p" "3s" "3p" "3d" "4s" "4p" "4d" "4f")
+    #n_arr = (1 2 2 3 3 3 4 4 4 4)
+    #l_arr = (0 0 1 0 1 2 0 1 2 3)
 
+    def __init__(self, rkmax = None, nn = None, functional = None, cutoff_energy = None, kgen = None, e_range = (-10.0, 4), # For initialization
+                 cif_file = None, encoding_type = None, errors = None, # For initialization
+                 sbatch = None, scf_type = "Basic", xspec = "True", resubmit = "False", scratch = "$SCRATCH", # run.job file
+                 xspec_config = None, email_address = None, account = None, cpu_limit = 32, node_limit = 3): # xspec_export.sh file
+
+        self.number_of_atoms = None
+        self.k_points = None
         if xspec_config is None:
             xspec_config = []
 
@@ -37,7 +79,7 @@ class Initialization:
         self.functional = functional
         self.nn = nn
         self.cutoff_energy = cutoff_energy
-        self.k_points = k_points
+        self.kgen = kgen
         self.complex_calc = False
         self.e_range = e_range
         self.encoding_type = encoding_type
@@ -49,6 +91,27 @@ class Initialization:
         self.resubmit = resubmit
         self.scratch = scratch
         self.xspec_config = xspec_config
+        self.email_address = email_address
+        self.account = account
+        self.cpu_limit = cpu_limit
+        self.lvns = None
+        self.gmax = None
+        self.ifftfac = None
+        self.node_limit = node_limit
+
+        # TODO: Put all of the final self parameters into a text file to output to user.
+
+    # Function that organizes the flow of the program
+    def main_program(self):
+        self.change_directory(make_new_working_folder(self.cif_file))
+        self.convert_cif_to_struct()
+        # self.initialize_structure() # This is old module of initialize that did it manually
+        self.initialize_structure_auto()
+        self.create_job_file()
+        self.create_xspec_file()
+        # self.submit_slurm_job() # TODO: Turn this back on
+        self.change_directory("../")
+        # Change back out of directory???
 
     # Helper Functions
     def run_terminal_command(self, args):
@@ -64,6 +127,7 @@ class Initialization:
         stdout: return output from command
         exit(1): If error occurred, exit with error code
         """
+        # TODO: Make a silent mode option, as this might be faster than printing out everything to terminal.
         print(args)  # Print input commands
         if self.encoding_type is not None:
             command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True, encoding=self.encoding_type, errors=self.errors)
@@ -112,6 +176,8 @@ class Initialization:
         self.case = get_current_folder_name()
 
     def initialize_structure(self):
+        # TODO: This is depreceated right now. Since all the parameters are set to None only the auto works.
+            # This could work if you specify all of the parameters in first line of class.
         # Calculate the x nearest neighbours and accept the recommendations of the program
         self.run_terminal_command(f'echo {self.nn} | x nn')
         while len(open(self.case+".struct_nn").readlines()) > 1:
@@ -158,10 +224,56 @@ class Initialization:
         self.run_terminal_command(f'cp {self.case}.inq_st {self.case}.inq')
 
         # Generate the k-mesh
-        self.run_terminal_command(f'{{ echo {self.k_points}; echo 0; }} | x kgen')
+        self.run_terminal_command(f'{{ echo {self.kgen}; echo 0; }} | x kgen')
         self.run_terminal_command('x dstart')
         self.run_terminal_command(f'cp {self.case}.in0_std {self.case}.in0')
         print("END OF INITIALIZATION FOR CASE " + self.case)
+
+    def initialize_structure_auto(self):
+        initialization_command = 'init_lapw -b'
+        if self.rkmax is not None:
+            initialization_command += f' -rkmax {self.rkmax}'
+        if self.kgen is not None:
+            initialization_command += f' -numk {self.kgen}'
+        if self.cutoff_energy is not None:
+            initialization_command += f' -ecut {self.cutoff_energy}'
+        if self.functional is not None:
+            initialization_command += f' -vxc {self.functional}'
+        initialization = self.run_terminal_command(f'{initialization_command}')
+
+        # Update case.in1_st to increase energy range
+        # TODO: Monitor if this has a significant impact on computation time
+            # If yes then do it after convergence and rerun scf cycle again with increased energy range. lapw1 and lapw2 -qtl
+        default_energy = "4   -9.0       1.5"
+        replace_energy = f"4   {self.e_range[0]}       {self.e_range[1]}"
+        try:
+            replace(self.case + ".in1", default_energy, replace_energy)
+        except:
+            replace(self.case + ".in1c", default_energy, replace_energy)
+
+        # Get input parameters provided from the terminal output of the init_lapw command
+        for line in initialization.splitlines():
+            if "SPACE GROUP DOES NOT CONTAIN INVERSION" in line: # Is this the best check for complex calcs?
+                self.complex_calc = True
+            elif "set RKmax" in line:
+                self.rkmax = line.split()[-1]
+            elif "set LVNS" in line:
+                self.lvns = line.split()[-1]
+            elif "set GMAX" in line:
+                self.gmax = line.split()[-1]
+            elif "set IFFTfac" in line:
+                self.ifftfac = line.split()[-1]
+            elif "NUMK" in line:
+                self.kgen = line.split()[-1] # These are input k-points
+            elif "k-points generated" in line:
+                self.k_points = line.split()[0] # This is k-mesh generated lattice
+            elif "Atoms found:" in line:
+                self.number_of_atoms = line.split()[0]
+
+    def get_atomic_species(self):
+        # Goal is to get the atom name for each number.
+        self.run_terminal_command(f'grep "NPT=" *.struct | cut -c 1-2 > {self.case}.info')
+        return
 
     def initialize_spin_polarized(self):
         self.initialize_structure()
@@ -174,17 +286,8 @@ class Initialization:
         # k-mesh and # of k-points found in .klist
         return
 
-    def main_program(self):
-        self.change_directory(make_new_working_folder(self.cif_file))
-        self.convert_cif_to_struct()
-        self.initialize_structure()
-        self.create_job_file()
-        self.create_xspec_file()
-        # self.submit_slurm_job() # TODO: Turn this back on
-        self.change_directory("../")
-        # Change back out of directory???
-
     def create_job_file(self):
+        # TODO: Find way to let them use entire job file if they so desire
         valid_scf_types = ["Basic", "PlusU", "SpinPolar", "ForceMin"]
         valid_boolean = ["True", "False"] # TODO: Make this an actual boolean??
         if self.scf_type not in valid_scf_types:
@@ -194,20 +297,61 @@ class Initialization:
             print("Invalid xspec or resubmit type")
             exit(1)
         if self.sbatch is not None:
-            #with open(self.case+".job", 'w') as job:
+            # This uses their own sbatch commands
             with open("run.job", 'w') as job:
-                # TODO: Remove the user parameters and make this section automated.
                 job.write(f"#!/bin/bash\n") # Header
-                job.write(self.sbatch + '\n') # SBATCH arguments #TODO: Auto create the name of the job that submits
+                # If they want their own full sbatch commands
+                job.write(self.sbatch + '\n') # SBATCH arguments
+
+        else:
+            # This makes use of an automation script to determine ntasks etc.
+            with open("run.job", 'w') as job:
+                job.write(f"#!/bin/bash\n") # Header
+                job.write(f'#SBATCH -J {self.case}\n')
+                if self.email_address is not None:
+                    job.write(f'#SBATCH --mail-user={self.email_address}\n')
+                    job.write(f'#SBATCH --mail-type=END\n')
+                # Here we need the nodes, ntasks, mem
+
+                ntasks = int(1.2 ** float(self.rkmax) * int(self.number_of_atoms) ** 0.45 - 1.5)
+                print("original ntasks: " + str(ntasks))
+                requested_nodes = 1
+                requested_nodes_interm = 1
+                k_points_interm = self.k_points
+                ntasks_interm = ntasks
+
+                while ntasks > self.cpu_limit and requested_nodes_interm < self.node_limit:
+                    requested_nodes_interm += 1
+                    # Need to check if we can actually divide the number of k-points by the number of nodes that we want.
+                    if int(self.k_points) % int(requested_nodes_interm) == 0:
+                        requested_nodes = requested_nodes_interm
+                        ntasks_interm = int(ntasks) / int(requested_nodes)
+                        k_points_interm = int(self.k_points) / int(requested_nodes)
+                        print("Updated ntasks" + str(ntasks_interm))
+                # Finds the closest value in factor list to our originally calculated ntasks value
+                factored_kpoints = sorted(factors(int(k_points_interm)))
+                factored_kpoints[:] = [x for x in factored_kpoints if x <= self.cpu_limit] # restricts possible nodes to below cpu limit
+                ntasks = min(factored_kpoints, key=lambda i: abs(ntasks_interm - i))
+                print("ntasks before cropping" + str(ntasks))
+                if ntasks < 1:
+                    ntasks = 1
+                print("factored_kpoints" + str(factored_kpoints))
+                print("ntasks" + str(ntasks))
+                print("requested_nodes" + str(requested_nodes))
+
+                job.write(f'#SBATCH --nodes={requested_nodes}\n')
+                job.write(f'#SBATCH --ntasks-per-node={ntasks}\n')
+                # TODO: Find memory and time based on number of atoms and precision level
+                job.write(f'#SBATCH --mem={3.9*ntasks*requested_nodes}G\n') # This gives 4GB per cpu. Let user change
+                job.write(f'#SBATCH --time=24:00:00\n')
+
+                job.write(f'#SBATCH --get-user-env\n')
+                job.write(f'#SBATCH --account={self.account}\n')
                 job.write(f'scf_type="{self.scf_type}"\n')
                 job.write(f'xspec="{self.xspec}"\n')
                 job.write(f'resubmit="{self.resubmit}"\n')
                 job.write(f'setenv SCRATCH {self.scratch}\n')
                 job.write(job_file_script_no_header())
-        else:
-            print("No sbatch arguments found to create job file. Manually run sbatch with your own job file.")
-            exit(1)
-
 
     def create_xspec_file(self):
         # TODO: Add some more checks for valid inputs
@@ -246,6 +390,10 @@ class Initialization:
 ###################################################################################################################
 # Helper Functions
 
+# Source - https://stackoverflow.com/questions/6800193/what-is-the-most-efficient-way-of-finding-all-the-factors-of-a-number-in-python
+# Posted by Julian
+def factors(n):
+    return set(factor for i in range(1, int(n**0.5) + 1) if n % i == 0 for factor in (i, n//i))
 
 def get_current_folder_name():
     """
@@ -605,7 +753,7 @@ exit 0
 """
     return xspec
 
-#Initialization(rkmax=6.5, k_points=500).main_program()
+#Initialization(rkmax=6.5, kgen=500).main_program()
 
 # This will execute when the file is run.
 if file_exists('JupyterCommands.py'):
