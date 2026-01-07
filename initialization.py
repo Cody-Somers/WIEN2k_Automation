@@ -1,5 +1,4 @@
 # Created: 02/06/2025 (June 2, 2025)
-# Last Edit: 24/06/2025
 
 import os
 import shutil
@@ -7,7 +6,7 @@ import subprocess
 from pathlib import Path
 from tempfile import mkstemp
 
-# TODO: Create a function that uses the built in init to see what Wien2k recommends for input parameters
+# TODO: Create a function that uses the built in init to see what WIEN2k recommends for input parameters
 # TODO: Create a function that checks for warnings and outputs them to the user
 # TODO: Figure how to replace gmax
 # TODO: Create a logbook that keeps track of what commands were sent, and which file name they were sent to.
@@ -19,47 +18,28 @@ from tempfile import mkstemp
 # TODO: Make the job submission SBATCH stuff automatic
 # TODO: Create function that finds relationship based on number of cpus and the memory required based on in-eq sites
     # On top of that, automatically find the ntasks-required for a job script.
+# TODO: Get site names and labels. So atom key in order, Fe1(47) So first iron, in (47'th position)
+# TODO: Make a new job submission with only a single core that does the DOS and the Xtetra
+# TODO: Make error handling better, so that user can actually see error messages from the terminal.
+# TODO: Make a bash script that does the DOS
+    # Will have to be specified to run in the run.job command, then it will receive how many files it has, only calculate
+    # less than 21 cases each time, then save them in a specific naming scheme, and repeat until finished
+    # On top of this, we want the run.job to be run2.job which only deals with the tasks. Runs on a single core,
+    # This allows the user to rerun the tasks separately from the main job if they want to.
+# TODO: THink about cluster configuration. bash type shell, planc defaults to...
 
 
 ###################################################################################################################
 # Main Function
 
 class Initialization:
-
-    # Based on orange X-Ray Data Booklet from Berkeley
-    PeriodicTable = {
-        "H": ["1s"],
-        "He": ["1s"],
-        "Li": ["1s"],
-        "Be": ["1s"],
-        "B": ["1s"],
-        "C": ["1s"],
-        "N": ["1s","2s"],
-        "O": ["1s","2s"],
-        "F": ["1s"],
-        "Ne": ["1s","2s","2p"],
-        "Na": ["1s","2s","2p"],
-        "Mg": ["1s","2s","2p"],
-        "Al": ["1s","2s","2p"],
-        "Si": ["1s","2s","2p"],
-        "P": ["1s","2s","2p"],
-        "S": ["1s","2s","2p"],
-        "Cl": ["1s","2s","2p"],
-        "Ar": ["1s","2s","2p","3s","3p"],
-        "K": ["1s","2s","2p","3s","3p"],
-        "Ca": ["1s","2s","2p","3s","3p"],
-        "Sc": ["1s","2s","2p","3s","3p"],
-        "Ti": ["1s","2s","2p","3s","3p"],
-        "V": ["1s","2s","2p","3s","3p"],
-        "Cr": ["1s","2s","2p","3s","3p"],
-        "Mn": ["1s","2s","2p","3s","3p"],
-        "Fe": ["1s","2s","2p","3s","3p"],
-        "Co": ["1s","2s","2p","3s","3p"],
-        "Ni": ["1s","2s","2p","3s","3p"],
-        "Cu": ["1s","2s","2p","3s","3p"],
-        "1s": ["H","He","Li","Be","B","C","N","O","F"],
-        "2s": ["H","He","Li","Be","B","C","N","O"]
-    } # TODO: Nope, rather just ask for them to input element species and then edge.
+    PeriodicTable = ['H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar', 'K', 'Ca',
+         'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn', 'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr', 'Rb', 'Sr', 'Y',
+         'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd', 'In', 'Sn', 'Sb', 'Te', 'I', 'Xe', 'Cs', 'Ba', 'La',
+         'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu', 'Hf', 'Ta', 'W', 'Re',
+         'Os', 'Ir', 'Pt', 'Au', 'Hg', 'Tl', 'Pb', 'Bi', 'Po', 'At', 'Rn', 'Fr', 'Ra', 'Ac', 'Th', 'Pa', 'U', 'Np',
+         'Pu', 'Am', 'Cm', 'Bk', 'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr', 'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 'Rg',
+         'Cn', 'Nh', 'Fl', 'Mc', 'Lv', 'Ts', 'Og']
     #edge_arr = ("1s" "2s" "2p" "3s" "3p" "3d" "4s" "4p" "4d" "4f")
     #n_arr = (1 2 2 3 3 3 4 4 4 4)
     #l_arr = (0 0 1 0 1 2 0 1 2 3)
@@ -67,7 +47,7 @@ class Initialization:
     def __init__(self, rkmax = None, nn = None, functional = None, cutoff_energy = None, kgen = None, e_range = (-10.0, 4), # For initialization
                  cif_file = None, encoding_type = None, errors = None, # For initialization
                  sbatch = None, scf_type = "Basic", xspec = "True", resubmit = "False", scratch = "$SCRATCH", # run.job file
-                 xspec_config = None, email_address = None, account = None, cpu_limit = 32, node_limit = 3): # xspec_export.sh file
+                 xspec_config = None, email_address = None, account = None, cpu_limit = 32, node_limit = 3, timelimit = "01:00:00"): # xspec_export.sh file
 
         self.number_of_atoms = None
         self.k_points = None
@@ -98,20 +78,32 @@ class Initialization:
         self.gmax = None
         self.ifftfac = None
         self.node_limit = node_limit
+        self.timelimit = timelimit
+
+        # TODO: Convert to dection per clusterr
 
         # TODO: Put all of the final self parameters into a text file to output to user.
 
     # Function that organizes the flow of the program
     def main_program(self):
-        self.change_directory(make_new_working_folder(self.cif_file))
-        self.convert_cif_to_struct()
-        # self.initialize_structure() # This is old module of initialize that did it manually
-        self.initialize_structure_auto()
-        self.create_job_file()
-        self.create_xspec_file()
-        # self.submit_slurm_job() # TODO: Turn this back on
-        self.change_directory("../")
-        # Change back out of directory???
+        """
+        This organizes the flow of the program and is the only thing that is actually run.
+        Called from JupyterCommands.py, which will delete itself after running through all calculations.
+
+        Returns
+        -------
+        Will initialize the structure and run through nn, init_lapw, etc.
+        Outputs xspec_export.sh, run.job.
+        """
+        self.change_directory(make_new_working_folder(self.cif_file)) # Change into working directory (Case_000)
+        self.convert_cif_to_struct()        # Uses WIEN2k to convert input cif file to a .struct
+        # self.initialize_structure()       # This is old module of initialize that did it manually. (Leave off for now)
+        self.initialize_structure_auto()    # Uses the batch command with WIEN2k v23 to auto generate inputs
+        self.create_job_file()              # Creates a job file that is later run by the program to submit to slurm
+        self.create_xspec_file()            # Creates xspec file that is used by run.job to calculate XAS/XES
+        self.create_dos_file()              # Crease a dos calculation file that is used by run.job to calculate Density of States
+        #self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
+        self.change_directory("../")        # Return out of working directory. (Maybe unnecessary based on how classes work)
 
     # Helper Functions
     def run_terminal_command(self, args):
@@ -128,50 +120,84 @@ class Initialization:
         exit(1): If error occurred, exit with error code
         """
         # TODO: Make a silent mode option, as this might be faster than printing out everything to terminal.
-        print(args)  # Print input commands
+        print(args)  # Print input commands for user to see in jupyter notebook
+        # Some clusters have different encoding types and may need to be specified manually.
+        # Common encoding includes UTF-8/16/32, ASCII
         if self.encoding_type is not None:
+            # shell = True allows to pass commands as single string and run it similar to a regular terminal command. Can cause security issues
+            # capture_output lets us use stdout and stderr and give it to user in jupyter notebook
+            # check is an error handling, and raises CalledProcessError on fail
+            # text allows us to read the output in strings rather than bytes
+            # encoding lets us specify the encoding type rather than it choosing one for us.
+            # errors is here for encoding??? not entirely sure to be honest
             command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True, encoding=self.encoding_type, errors=self.errors)
         else:
             command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True, errors=self.errors)
-        print(command.stdout)  # Print output results
+        print(command.stdout)  # Print output results for user
 
         # Error handling
-        check_error_files()  # Check if case.error files exist
+        check_error_files()  # Check if case.error files exist, and if they do then exit(1)
         for line in command.stdout.splitlines(): # Reads stdout and check if any errors occurred
             if ("ERROR IN OPENING UNIT" or "error: command") in line: # Update this line as more error combinations occur
+                print(command.stderr)
+                print(command.stdout)
                 exit(1)
         return command.stdout
 
     # Functions interacting with WIEN2k
     def convert_cif_to_struct(self):
+        """
+        This checks if user gave a .struct or .cif in initialization.
+        If .struct then nothing needs to be done.
+        If .cif then uses WIEN2k built in command to convert .cif to .struct
+
+        Returns
+        -------
+        Outputs a .struct file for later use in the program
+        """
         # If the user decides to upload a .struct. Assume they have done setrmt, or chosen accurate rmt values
         if self.cif_file.endswith('.struct'):
-            shutil.move(self.cif_file, self.case + ".struct")  # Change this to copy to preserve the system
+            shutil.move(self.cif_file, self.case + ".struct") # Update name of provided cif file to Case_000.struct
             return
 
-
-        for file_name in os.listdir('.'):
+        # If the user decides to upload a .cif file.
+        for file_name in os.listdir('.'): # Goes through all files in the directory
             if file_name.endswith('.cif'): # Will convert the first cif file it finds. User can only have 1 cif in a folder for accurate parsing
-                if file_name == self.case+".cif":
+                if file_name == self.case+".cif": # If properly named cif file is found, break
                     break
                 else:
-                    shutil.move(file_name, self.case+".cif") # Change this to copy to preserve the system
+                    shutil.move(file_name, self.case+".cif") # Update name of provided cif file to Case_000.cif
                     break
+
+        # Now that cif file is in a properly named scheme
         if file_exists(self.case+".cif"):
+            # Since this is first command in main_program() it should always run first.
+            # Thus, it will be here that we discover any encoding issues, or issues with WIEN2k installation
             try: # TODO: Make this a better check of encoding??
                 self.run_terminal_command('x cif2struct')
             except:
                 print("Error converting cif: Either WIEN2k command could not be found, or encoding error.")
                 print("If encoding error please run find_encoding() in the jupyter notebook.")
-                find_encoding('x cif2struct')
+                find_encoding('x cif2struct') # Writes bytes to a file that can be accessed in notebook and encoding found
                 # exit(1)
-            self.run_terminal_command('setrmt')
-            self.run_terminal_command(f'cp {self.case}.struct_setrmt {self.case}.struct')
+            self.run_terminal_command('setrmt') # This sets the rmt values before saving as new struct. Might be irrelevant with init_lapw
+            self.run_terminal_command(f'cp {self.case}.struct_setrmt {self.case}.struct') # Copy rmt values into .struct
         else:
             print("No cif structure found")
             exit(1)
 
     def change_directory(self, directory):
+        """
+        Changes current working directory to given directory.
+
+        Parameters
+        ----------
+        directory: string of directory that we want to go to
+
+        Returns
+        -------
+        Changes self.case to the current folder name
+        """
         os.chdir(directory)
         self.case = get_current_folder_name()
 
@@ -252,6 +278,7 @@ class Initialization:
             replace(self.case + ".in1c", default_energy, replace_energy)
 
         # Get input parameters provided from the terminal output of the init_lapw command
+        # TODO: Check if stopping print to notebook will impact this search
         for line in initialization.splitlines():
             if "SPACE GROUP DOES NOT CONTAIN INVERSION" in line: # Is this the best check for complex calcs?
                 self.complex_calc = True
@@ -271,20 +298,51 @@ class Initialization:
                 self.number_of_atoms = line.split()[0]
 
     def get_atomic_species(self):
-        # Goal is to get the atom name for each number.
-        self.run_terminal_command(f'grep "NPT=" *.struct | cut -c 1-2 > {self.case}.info')
-        return
+        """
+        Gets all atomic elements and puts them in a dictionary. {'Element':[Site1, Site2, etc.]}
+
+        Returns
+        -------
+        A dictionary containing all the atomic species and their position in WIEN2k
+        """
+        # Search through terminal output and get the first two characters from lines with 'NPT=' and store in file
+        self.run_terminal_command(f'grep "NPT=" {self.case}.struct | cut -c 1-2 > {self.case}.atomic_species')
+        # Create empty dictionary and counter so we know which WIEN2k site in the list we are on
+        atomic_species = {}
+        counter = 1
+        with open(self.case + ".atomic_species", "r") as file:
+            for line in file:
+                # For each site, if element doesn't exist then make new list in dictionary, otherwise append current site position
+                atomic_species.setdefault(line.split()[0],[]).append(counter)
+                counter += 1
+        return atomic_species
 
     def initialize_spin_polarized(self):
+        # TODO: This worked with old initialization, not with the new version. Remove and update new
         self.initialize_structure()
         self.run_terminal_command('x dstart -up')
         self.run_terminal_command('x dstart -dn')
 
-    def print_info(self):
-        # RKmax, Energy k-vector range stored in .in1 or .in1c
-        # Gmax stored in .in2 or .in2c
-        # k-mesh and # of k-points found in .klist
-        return
+    def create_dos_file(self):
+        atomic_species = self.get_atomic_species()
+        print("GENERATING DOS INPUTS")
+        print(atomic_species)
+        dos_orbitals = "tot,s,p,d,f"
+        dos_file_name = "DOS_export"
+        self.run_terminal_command(f'mkdir -p {dos_file_name}')
+        dos_inputs = f"configure_int_lapw -b total end\nx tetra\nmv {self.case}.dos1 {dos_file_name}/Total.dos\n"
+        for key, value in atomic_species.items():
+            print(f"Key: {key}, Value: {value}")
+            for i in range(len(value)):
+                dos_inputs += f"configure_int_lapw -b {value[i]} {dos_orbitals} end\nx tetra\nmv {self.case}.dos1 {dos_file_name}/{self.case}_Atom{value[i]}.dos\n"
+        with open("dos_export.sh", 'w') as f:
+            f.write("#!/bin/bash\nset -e\n")
+            f.write(dos_inputs)
+            os.system('chmod +x dos_export.sh')
+
+            #TODO: Make sure the Emin and Emax are a specified value in the nDOS calc .int file.
+            # -20 to 20
+
 
     def create_job_file(self):
         # TODO: Find way to let them use entire job file if they so desire
@@ -312,8 +370,9 @@ class Initialization:
                     job.write(f'#SBATCH --mail-user={self.email_address}\n')
                     job.write(f'#SBATCH --mail-type=END\n')
                 # Here we need the nodes, ntasks, mem
-
+                # TODO: Found error where when you limit cpu, and increase node limit, gets more than desired
                 ntasks = int(1.2 ** float(self.rkmax) * int(self.number_of_atoms) ** 0.45 - 1.5)
+                # TODO: gmin and k mesh look at instead of rkmax atoms, and number of bands, because thats the k points at each.
                 print("original ntasks: " + str(ntasks))
                 requested_nodes = 1
                 requested_nodes_interm = 1
@@ -342,8 +401,8 @@ class Initialization:
                 job.write(f'#SBATCH --nodes={requested_nodes}\n')
                 job.write(f'#SBATCH --ntasks-per-node={ntasks}\n')
                 # TODO: Find memory and time based on number of atoms and precision level
-                job.write(f'#SBATCH --mem={3.9*ntasks*requested_nodes}G\n') # This gives 4GB per cpu. Let user change
-                job.write(f'#SBATCH --time=24:00:00\n')
+                job.write(f'#SBATCH --mem={int(3.9*ntasks*requested_nodes)}G\n') # This gives 4GB per cpu. Let user change
+                job.write(f'#SBATCH --time={self.timelimit}\n')
 
                 job.write(f'#SBATCH --get-user-env\n')
                 job.write(f'#SBATCH --account={self.account}\n')
@@ -393,6 +452,17 @@ class Initialization:
 # Source - https://stackoverflow.com/questions/6800193/what-is-the-most-efficient-way-of-finding-all-the-factors-of-a-number-in-python
 # Posted by Julian
 def factors(n):
+    """
+    Code stolen from stackoverflow. Efficient way to find a set of all factors of an integer
+
+    Parameters
+    ----------
+    n: integer value that we want factors of
+
+    Returns
+    -------
+    A set of integers containing the factors of n
+    """
     return set(factor for i in range(1, int(n**0.5) + 1) if n % i == 0 for factor in (i, n//i))
 
 def get_current_folder_name():
@@ -479,7 +549,6 @@ def make_new_working_folder(cif_file=None):
 def auto_run(file_name="JupyterCommands.py"):
     with open(file_name, "r") as file:  # Read in Initialization().main_program() commands
         lines = file.readlines()
-
     while len(lines) > 0:
         exec(lines[0])  # Run each command
         lines.pop(0)  # If command was successful then remove from list. (Assumes will crash if unsuccessful)
@@ -524,7 +593,7 @@ def find_encoding(args):
 
 
 def job_file_script_no_header():
-    # Last updated Jun 24, 2025
+    # Last updated Jan 6, 2026
     # TODO: Give ability to change the convergence criteria
     job = """
 # Gets the hosts and puts it into the .machines file.
@@ -550,6 +619,11 @@ check_convergence () {
   else
     converged="False"
   fi
+}
+
+dos_calculation () {
+  chmod +x dos_export.sh
+  ./dos_export.sh
 }
 
 basic_xspec () {
@@ -587,6 +661,11 @@ spinpolar_SCF() {
   runsp_lapw -NI -p -ec 0.00001 -cc 0.01 -i 200
 }
 
+forceMinimization_SCF() {
+  # run_lapw -NI -p -fc 1 -i 600
+  run_lapw -min -NI -p -fc 0.5 -ec 0.0001 -cc 0.01 -i 600
+}
+
 choose_SCF_type() {
   if [[ "$scf_type" == "Basic" ]]; then
     basic_SCF
@@ -594,6 +673,8 @@ choose_SCF_type() {
     plusU_SCF
   elif [[ "$scf_type" == "SpinPolar" ]]; then
     spinpolar_SCF
+  elif [[ "$scf_type" == "ForceMin" ]]; then
+    forceMinimization_SCF
   fi
 }
 
@@ -604,6 +685,8 @@ choose_xspec_type() {
     spinpolar_xspec
   elif [[ "$scf_type" == "SpinPolar" ]]; then
     spinpolar_xspec
+  elif [[ "$scf_type" == "ForceMin" ]]; then
+    basic_xspec # Does this actually work? Or do we have to redo an SCF cycle again.
   fi
 }
 
@@ -622,6 +705,7 @@ run_SCF() {
   check_convergence
   if [[ "$converged" == "True" && "$xspec" == "True" ]]; then
     choose_xspec_type
+    dos_calculation
   fi
 
   if [[ "$converged" != "True" && "$resubmit" == "True" ]]; then

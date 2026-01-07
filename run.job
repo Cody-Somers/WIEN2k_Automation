@@ -47,6 +47,11 @@ check_convergence () {
   fi
 }
 
+dos_calculation () {
+  chmod +x dos_export.sh
+  ./dos_export.sh
+}
+
 basic_xspec () {
   # Necessary to do x xspec
   # x lapw1 -p
@@ -126,6 +131,7 @@ run_SCF() {
   check_convergence
   if [[ "$converged" == "True" && "$xspec" == "True" ]]; then
     choose_xspec_type
+    dos_calculation
   fi
 
   if [[ "$converged" != "True" && "$resubmit" == "True" ]]; then

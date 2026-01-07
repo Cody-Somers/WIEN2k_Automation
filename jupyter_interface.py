@@ -1,5 +1,4 @@
 # Created: 05/06/2025 (June 5, 2025)
-# Last Edit: 24/06/2025
 # Rename to wien2k_jupyter_interface??
 
 # TODO: Make these import statements local to the functions. This allows us to not force user to make imports if they don't
@@ -91,7 +90,7 @@ class JupyterInterface:
                 c.put('JupyterCommands.py', self.working_directory) # Upload calculations to run
                 # TODO: Remove jupytercommands from local server after successful upload
                 with c.cd(self.working_directory):
-                    c.run('python initialization.py')
+                    c.run('python initialization.py') # Gotta have python on cluster
         else:
             print("No connection to server")
 
@@ -285,7 +284,7 @@ class JupyterInterface:
 
 
                 # Generate string to only find the files that we want directly from the server
-                files_we_want = ['.in1', '.in2', '.klist', '.outputd', '.scf2', '.scfc', '.txspec']
+                files_we_want = ['.in1', 'in1c', '.in2', 'in2c', '.klist', '.outputd', '.scf2', '.scfc', '.txspec','.dos']
                 bash_command_middle = ""
                 for index, extension in enumerate(files_we_want):
                     if index != len(files_we_want)-1: # Go until last index
@@ -303,7 +302,6 @@ class JupyterInterface:
                     else:
                         c.run(bash_command)
 
-
                 # On server check to see which files have been changed compared to the ones downloaded locally
                 self.check_file_modified()
                 c.get(f"{self.working_directory}/foldernames_updated.txt")
@@ -317,17 +315,6 @@ class JupyterInterface:
                         # The location of the file on the local computer and where we want to put it.
                         # NOTE: We use strip to remove the \n character at the end of the line in the txt file
                         file_location_local = current_folder + '/' + storage_folder + '/' + Path(file_location_server.strip()).parent.name + '/' + Path(file_location_server.strip()).name
-
-                        # Check if it is a file we want to download
-                        # files we want can go here again later
-                        #if Path(file_location_server.strip()).suffix in files_we_want:
-                            # Check hash table to see if it has changed
-                            # TODO: Put hash command into a file and run it on server. c.run() is waaay too slow
-                            #print("This is file name " + file_location_server.strip())
-                            #c.run(f'(echo -n "{Path(file_location_server.strip()).name}" ; echo -n "$(md5sum {file_location_server.strip()})") '
-                            #      f'| cut -f 1 -d " " | tr -d "\n" | md5sum | cut -f 1 -d " " | tr -d "\n" > FILE')
-                            # Will cause issues as second iteration will see these files and make TiCv2_003.in1.md5.md5 etc.
-                            # (echo -n "TiCv2_023.in1" ; echo -n "$(md5sum TiCv2_023.in1)") | cut -f 1 -d " " | tr -d '\n' | md5sum | cut -f 1 -d " " | tr -d '\n' > "TiCv2_023.md5"
                         Path(storage_folder + '/' + Path(file_location_server.strip()).parent.name).mkdir(exist_ok=True)
                         c.get(file_location_server.strip(), file_location_local)
                         self.convert_to_hdf5(file_location_local)
@@ -335,6 +322,7 @@ class JupyterInterface:
                 elapsed_time = end_time - start_time
                 print(f"Execution time: {elapsed_time:.4f} seconds")
                 print("Download complete")
+                # TODO: Add server name to download, so if you have identical calculations on different servers then you know which came where.
         else:
             print("No connection to server")
         return
@@ -342,7 +330,7 @@ class JupyterInterface:
     def convert_to_hdf5(self, file_name, overwrite = False):
         # This parses through the files and gets the info we care about
         case_name = Path(file_name.strip()).stem
-        if Path(file_name.strip()).suffix == '.in1':  # This is for RKMax, Emin/Emax
+        if Path(file_name.strip()).suffix == '.in1' or Path(file_name.strip()).suffix == '.in1c':  # This is for RKMax, Emin/Emax
             with open(file_name, 'r') as in1:
                 in1_lines = in1.readlines()
                 rkmax = in1_lines[1].split()[0]  # Get the second line, first value, which is rkmax
@@ -375,6 +363,7 @@ class JupyterInterface:
             file.visit(printname)
 
     def create_dataset(self, dataset_name, **kwargs):
+        # Only creates a dataset of the information that is actually downloaded from the server. Needs to do that to convert to hdf5
         with h5py.File(Path(self.cif_file).stem + ".hdf5", 'a') as h5_file: # Main file to store all info
             if dataset_name in h5_file.keys():
                 del h5_file[dataset_name]
