@@ -18,17 +18,42 @@ from tempfile import mkstemp
 # TODO: Make the job submission SBATCH stuff automatic
 # TODO: Create function that finds relationship based on number of cpus and the memory required based on in-eq sites
     # On top of that, automatically find the ntasks-required for a job script.
-# TODO: Get site names and labels. So atom key in order, Fe1(47) So first iron, in (47'th position)
 # TODO: Make a new job submission with only a single core that does the DOS and the Xtetra
 # TODO: Make error handling better, so that user can actually see error messages from the terminal.
-# TODO: Make a bash script that does the DOS
-    # Will have to be specified to run in the run.job command, then it will receive how many files it has, only calculate
-    # less than 21 cases each time, then save them in a specific naming scheme, and repeat until finished
-    # On top of this, we want the run.job to be run2.job which only deals with the tasks. Runs on a single core,
-    # This allows the user to rerun the tasks separately from the main job if they want to.
-# TODO: THink about cluster configuration. bash type shell, planc defaults to...
+# TODO: Think about cluster configuration. bash type shell, planc defaults to...
 
+###################################################################################################################
+"""
+Updated Jan 7, 2026
+Function interactions to show which main functions make use of which sub-functions
 
+main_program()
+    - change_directory()
+        * get_current_folder_name()
+    - convert_cif_to_struct()
+        * run_terminal_command()
+            $ check_error_files()
+        * file_exists()
+        * find_encoding()   # Only used if error
+    - initialize_structure_auto()
+        * run_terminal_command()
+            $ check_error_files()
+        * replace()
+    - create_job_file()
+        * job_file_script_no_header()
+        * factors()
+    - create_xspec_file()
+        * xspec_file_script_no_header()
+    - create_dos_file()
+        * get_atomic_species()
+            $ run_terminal_command()
+                & check_error_files()
+        * run_terminal_command()
+            $ check_error_files()
+    - submit_slurm_job()
+        * run_terminal_command()
+            $ check_error_files()
+"""
 ###################################################################################################################
 # Main Function
 
@@ -44,16 +69,17 @@ class Initialization:
     #n_arr = (1 2 2 3 3 3 4 4 4 4)
     #l_arr = (0 0 1 0 1 2 0 1 2 3)
 
-    def __init__(self, rkmax = None, nn = None, functional = None, cutoff_energy = None, kgen = None, e_range = (-10.0, 4), # For initialization
+    def __init__(self,
+                 rkmax = None, nn = None, functional = None, cutoff_energy = None, kgen = None, e_range = (-10.0, 4), # For initialization
                  cif_file = None, encoding_type = None, errors = None, # For initialization
                  sbatch = None, scf_type = "Basic", xspec = "True", resubmit = "False", scratch = "$SCRATCH", # run.job file
-                 xspec_config = None, email_address = None, account = None, cpu_limit = 32, node_limit = 3, timelimit = "01:00:00"): # xspec_export.sh file
+                 email_address = None, account = None, cpu_limit = 32, node_limit = 3, timelimit = "01:00:00", # run.job file
+                 xspec_config = None): # xspec_export.sh file
 
         self.number_of_atoms = None
         self.k_points = None
         if xspec_config is None:
             xspec_config = []
-
         self.case = get_current_folder_name()
         self.rkmax = rkmax
         self.functional = functional
@@ -80,8 +106,8 @@ class Initialization:
         self.node_limit = node_limit
         self.timelimit = timelimit
 
-        # TODO: Convert to dection per clusterr
-
+        # TODO: Convert to detection per cluster
+        # TODO: Add more info about what each value is, and how it can be changed
         # TODO: Put all of the final self parameters into a text file to output to user.
 
     # Function that organizes the flow of the program
@@ -93,56 +119,16 @@ class Initialization:
         Returns
         -------
         Will initialize the structure and run through nn, init_lapw, etc.
-        Outputs xspec_export.sh, run.job.
+        Outputs xspec_export.sh, run.job, dos_export.sh.
         """
         self.change_directory(make_new_working_folder(self.cif_file)) # Change into working directory (Case_000)
         self.convert_cif_to_struct()        # Uses WIEN2k to convert input cif file to a .struct
-        # self.initialize_structure()       # This is old module of initialize that did it manually. (Leave off for now)
         self.initialize_structure_auto()    # Uses the batch command with WIEN2k v23 to auto generate inputs
         self.create_job_file()              # Creates a job file that is later run by the program to submit to slurm
         self.create_xspec_file()            # Creates xspec file that is used by run.job to calculate XAS/XES
         self.create_dos_file()              # Crease a dos calculation file that is used by run.job to calculate Density of States
         #self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
         self.change_directory("../")        # Return out of working directory. (Maybe unnecessary based on how classes work)
-
-    # Helper Functions
-    def run_terminal_command(self, args):
-        """
-        Will run a command in terminal and return its output. Has built in error handling.
-
-        Parameters
-        ----------
-        args: command line arguments to be run
-
-        Returns
-        -------
-        stdout: return output from command
-        exit(1): If error occurred, exit with error code
-        """
-        # TODO: Make a silent mode option, as this might be faster than printing out everything to terminal.
-        print(args)  # Print input commands for user to see in jupyter notebook
-        # Some clusters have different encoding types and may need to be specified manually.
-        # Common encoding includes UTF-8/16/32, ASCII
-        if self.encoding_type is not None:
-            # shell = True allows to pass commands as single string and run it similar to a regular terminal command. Can cause security issues
-            # capture_output lets us use stdout and stderr and give it to user in jupyter notebook
-            # check is an error handling, and raises CalledProcessError on fail
-            # text allows us to read the output in strings rather than bytes
-            # encoding lets us specify the encoding type rather than it choosing one for us.
-            # errors is here for encoding??? not entirely sure to be honest
-            command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True, encoding=self.encoding_type, errors=self.errors)
-        else:
-            command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True, errors=self.errors)
-        print(command.stdout)  # Print output results for user
-
-        # Error handling
-        check_error_files()  # Check if case.error files exist, and if they do then exit(1)
-        for line in command.stdout.splitlines(): # Reads stdout and check if any errors occurred
-            if ("ERROR IN OPENING UNIT" or "error: command") in line: # Update this line as more error combinations occur
-                print(command.stderr)
-                print(command.stdout)
-                exit(1)
-        return command.stdout
 
     # Functions interacting with WIEN2k
     def convert_cif_to_struct(self):
@@ -186,76 +172,15 @@ class Initialization:
             print("No cif structure found")
             exit(1)
 
-    def change_directory(self, directory):
+    def initialize_structure_auto(self):
         """
-        Changes current working directory to given directory.
-
-        Parameters
-        ----------
-        directory: string of directory that we want to go to
+        Performs init_lapw to generate the structure inputs to be ready for job submission.
+        Makes use of the build in command to automatically generate rkmax, kpoints, etc. unless these are specifically specified.
 
         Returns
         -------
-        Changes self.case to the current folder name
+        Generates list of files for WIEN2k
         """
-        os.chdir(directory)
-        self.case = get_current_folder_name()
-
-    def initialize_structure(self):
-        # TODO: This is depreceated right now. Since all the parameters are set to None only the auto works.
-            # This could work if you specify all of the parameters in first line of class.
-        # Calculate the x nearest neighbours and accept the recommendations of the program
-        self.run_terminal_command(f'echo {self.nn} | x nn')
-        while len(open(self.case+".struct_nn").readlines()) > 1:
-            self.run_terminal_command(f'cp {self.case}.struct_nn {self.case}.struct')
-            self.run_terminal_command(f'echo {self.nn} | x nn')
-
-        self.run_terminal_command('x sgroup')
-        # TODO: Check output for warning, then prompt user to accept the space group
-        symmetry_found = self.run_terminal_command('x symmetry')
-        for line in symmetry_found.splitlines():
-            if "SPACE GROUP DOES NOT CONTAIN INVERSION" in line: # Is this the best check for complex calcs?
-                print("Calculation is complex")
-                self.complex_calc = True
-                break
-        self.run_terminal_command(f'cp {self.case}.struct_st {self.case}.struct') # Uses found symmetry group
-
-        self.run_terminal_command('echo "y" | instgen_lapw -up') # TODO: Make option to not default to spin up
-
-        self.run_terminal_command(f'{{ echo {self.functional}; echo {self.cutoff_energy}; }} | x lstart')
-
-        # Update case.in1_st to change rkmax
-        default_rkmax = "7.00     10   4   ELPA" # TODO: Check if better way to change rkmax, or if the other params change
-        replace_rkmax = f"{self.rkmax}     10   4   ELPA"
-        replace(self.case+".in1_st", default_rkmax, replace_rkmax)
-
-        # Update case.in1_st to increase energy range
-        default_energy = "4   -9.0       1.5"
-        replace_energy =  f"4   {self.e_range[0]}       {self.e_range[1]}"
-        replace(self.case+".in1_st", default_energy, replace_energy)
-
-        # Prepare input file
-        self.run_terminal_command(f'cp {self.case}.in0_st {self.case}.in0')
-        if self.complex_calc:
-            self.run_terminal_command(f'cp {self.case}.in1_st {self.case}.in1c')
-            self.run_terminal_command(f'cat {self.case}.in2_ls > {self.case}.in2c')
-            self.run_terminal_command(f'cat {self.case}.in2_sy >> {self.case}.in2c')
-        else:
-            self.run_terminal_command(f'cp {self.case}.in1_st {self.case}.in1')
-            self.run_terminal_command(f'cat {self.case}.in2_ls > {self.case}.in2')
-            self.run_terminal_command(f'cat {self.case}.in2_sy >> {self.case}.in2')
-
-        self.run_terminal_command(f'cp {self.case}.inc_st {self.case}.inc')
-        self.run_terminal_command(f'cp {self.case}.inm_st {self.case}.inm')
-        self.run_terminal_command(f'cp {self.case}.inq_st {self.case}.inq')
-
-        # Generate the k-mesh
-        self.run_terminal_command(f'{{ echo {self.kgen}; echo 0; }} | x kgen')
-        self.run_terminal_command('x dstart')
-        self.run_terminal_command(f'cp {self.case}.in0_std {self.case}.in0')
-        print("END OF INITIALIZATION FOR CASE " + self.case)
-
-    def initialize_structure_auto(self):
         initialization_command = 'init_lapw -b'
         if self.rkmax is not None:
             initialization_command += f' -rkmax {self.rkmax}'
@@ -297,6 +222,9 @@ class Initialization:
             elif "Atoms found:" in line:
                 self.number_of_atoms = line.split()[0]
 
+    ###################################################################################################################
+    # Creating Shell Script Files
+
     def get_atomic_species(self):
         """
         Gets all atomic elements and puts them in a dictionary. {'Element':[Site1, Site2, etc.]}
@@ -317,13 +245,14 @@ class Initialization:
                 counter += 1
         return atomic_species
 
-    def initialize_spin_polarized(self):
-        # TODO: This worked with old initialization, not with the new version. Remove and update new
-        self.initialize_structure()
-        self.run_terminal_command('x dstart -up')
-        self.run_terminal_command('x dstart -dn')
-
     def create_dos_file(self):
+        """
+        Creates a .sh script that will be run to generate the density of states after job submission completes successfully.
+
+        Returns
+        -------
+        A dos_export.sh file
+        """
         atomic_species = self.get_atomic_species()
         print("GENERATING DOS INPUTS")
         print(atomic_species)
@@ -345,6 +274,15 @@ class Initialization:
 
 
     def create_job_file(self):
+        """
+        Creates a job file that will be submitted to slurm. Needs user parameters to run properly.
+        Contains options to perform auto-resubmission, as well as different scf types.
+        Runs both the dos.sh and xspec.sh scripts after job is successful.
+
+        Returns
+        -------
+        A run.job file containing slurm information.
+        """
         # TODO: Find way to let them use entire job file if they so desire
         valid_scf_types = ["Basic", "PlusU", "SpinPolar", "ForceMin"]
         valid_boolean = ["True", "False"] # TODO: Make this an actual boolean??
@@ -413,6 +351,13 @@ class Initialization:
                 job.write(job_file_script_no_header())
 
     def create_xspec_file(self):
+        """
+        Creates a .sh script that will be run to generate the x-ray spectra after job submission completes successfully.
+
+        Returns
+        -------
+        An xspec_export.sh file.
+        """
         # TODO: Add some more checks for valid inputs
         # TODO: Make this automated? Make lookup table and calculate the orbitals based on what we want.
         with open("xspec_export.sh", 'w') as f:
@@ -439,15 +384,72 @@ class Initialization:
         os.system('chmod +x xspec_export.sh')
         return
 
+    ###################################################################################################################
+    # Helper Functions
+    def change_directory(self, directory):
+        """
+        Changes current working directory to given directory.
+
+        Parameters
+        ----------
+        directory: string of directory that we want to go to
+
+        Returns
+        -------
+        Changes self.case to the current folder name
+        """
+        os.chdir(directory)
+        self.case = get_current_folder_name()
+
     def submit_slurm_job(self):
+        """
+        Just a command that submits run.job to slurm.
+        """
         #self.run_terminal_command(f'sbatch {self.case}.job')
         self.run_terminal_command(f'sbatch run.job')
         return
 
+    def run_terminal_command(self, args):
+        """
+        Will run a command in terminal and return its output. Has built in error handling.
+
+        Parameters
+        ----------
+        args: command line arguments to be run
+
+        Returns
+        -------
+        stdout: return output from command
+        exit(1): If error occurred, exit with error code
+        """
+        # TODO: Make a silent mode option, as this might be faster than printing out everything to terminal.
+        print(args)  # Print input commands for user to see in jupyter notebook
+        # Some clusters have different encoding types and may need to be specified manually.
+        # Common encoding includes UTF-8/16/32, ASCII
+        if self.encoding_type is not None:
+            # shell = True allows to pass commands as single string and run it similar to a regular terminal command. Can cause security issues
+            # capture_output lets us use stdout and stderr and give it to user in jupyter notebook
+            # check is an error handling, and raises CalledProcessError on fail
+            # text allows us to read the output in strings rather than bytes
+            # encoding lets us specify the encoding type rather than it choosing one for us.
+            # errors is here for encoding??? not entirely sure to be honest
+            command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True, encoding=self.encoding_type, errors=self.errors)
+        else:
+            command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True, errors=self.errors)
+        print(command.stdout)  # Print output results for user
+
+        # Error handling
+        check_error_files()  # Check if case.error files exist, and if they do then exit(1)
+        for line in command.stdout.splitlines(): # Reads stdout and check if any errors occurred
+            if ("ERROR IN OPENING UNIT" or "error: command") in line: # Update this line as more error combinations occur
+                print(command.stderr)
+                print(command.stdout)
+                exit(1)
+        return command.stdout
 
 
 ###################################################################################################################
-# Helper Functions
+# Global Helper Functions
 
 # Source - https://stackoverflow.com/questions/6800193/what-is-the-most-efficient-way-of-finding-all-the-factors-of-a-number-in-python
 # Posted by Julian
@@ -512,6 +514,17 @@ def check_error_files():
                 exit(1)
 
 def make_new_working_folder(cif_file=None):
+    """
+    Creates a new folder, with a naming scheme of case_000 to case_999, incrementing based on previously existing files.
+
+    Parameters
+    ----------
+    cif_file: name of the file to be created/appended to.
+
+    Returns
+    -------
+    A new folder properly named
+    """
     # If user does not specify name, then it will pick the first cif file that it can find.
     if cif_file is None:
         for file_name in os.listdir('.'):
@@ -546,30 +559,19 @@ def make_new_working_folder(cif_file=None):
     print("Have reached maximum number of files (1000 max). Make a new folder with original cif and start again.")
     exit(1)
 
-def auto_run(file_name="JupyterCommands.py"):
-    with open(file_name, "r") as file:  # Read in Initialization().main_program() commands
-        lines = file.readlines()
-    while len(lines) > 0:
-        exec(lines[0])  # Run each command
-        lines.pop(0)  # If command was successful then remove from list. (Assumes will crash if unsuccessful)
-        with open(file_name, "w") as file:  # Update file with reduced list
-            file.writelines(lines)
-
-    if len(lines) == 0:  # All commands ran successfully
-        os.remove(file_name)
-
 def replace(source_file_path, pattern, substring):
     """
+    Searches through a file and replaces the pattern with the desired substring.
 
     Parameters
     ----------
-    source_file_path
-    pattern
-    substring
+    source_file_path: File to be searched through
+    pattern: Original pattern to be replaced
+    substring: New string that will be used to replace pattern
 
     Returns
     -------
-
+    Changes a pattern of text and overwrites original file
     """
     fh, target_file_path = mkstemp()
     with open(target_file_path, 'w') as target_file, open(source_file_path, 'r') as source_file:
@@ -579,6 +581,20 @@ def replace(source_file_path, pattern, substring):
     shutil.move(target_file_path, source_file_path) # Check that this still functions properly. Else target/source switch
 
 def find_encoding(args):
+    """
+    Used to find the encoding of the output to terminal from a WIEN2k command.
+    This only generates a text file that can be read locally to determine the encoding. (jupyter_interface)
+    If encoding is not specified, sometimes causes issues with viewing on jupyter notebook, so needs to be explicitly
+    specified on occassion.
+
+    Parameters
+    ----------
+    args: Command line arguments to be run
+
+    Returns
+    -------
+    Outputs two files that contain a single byte of data. These will be read locally later.
+    """
     command = subprocess.run(args, shell=True, capture_output=True, check=True, text=False)
     with open('../encoding_stdout', "wb") as f:
         f.write(command.stdout)
@@ -587,12 +603,12 @@ def find_encoding(args):
     return
 
 
-
 ###################################################################################################################
 # Storage for shell scripts
 
 
 def job_file_script_no_header():
+    # Holds the information of the job script. Reduces number of files that need to be sent to server.
     # Last updated Jan 6, 2026
     # TODO: Give ability to change the convergence criteria
     job = """
@@ -722,6 +738,7 @@ run_SCF
 
 
 def xspec_file_script_no_header():
+    # Holds the information of the xspec script. Reduces number of files that need to be sent to server.
     # Last updated Jun 28, 2025
     xspec = r"""
 ##########
@@ -837,7 +854,35 @@ exit 0
 """
     return xspec
 
-#Initialization(rkmax=6.5, kgen=500).main_program()
+###################################################################################################################
+# Function that actually starts the program
+
+def auto_run(file_name="JupyterCommands.py"):
+    """
+    This is called when the program is run. Reads in list of instructions uploaded to server.
+    If it successfully submits to slurm then removes from text file and continues down list.
+
+    Parameters
+    ----------
+    file_name: name of file to search through for commands
+
+    Returns
+    -------
+    Slurm submissions of job
+    """
+    # Example of input to the system in 'JupyterCommands.py'
+    # Initialization(rkmax=6.5, kgen=500).main_program()
+    with open(file_name, "r") as file:  # Read in Initialization().main_program() commands
+        lines = file.readlines()
+    while len(lines) > 0:
+        exec(lines[0])  # Run each command
+        lines.pop(0)  # If command was successful then remove from list. (Assumes will crash if unsuccessful)
+        with open(file_name, "w") as file:  # Update file with reduced list
+            file.writelines(lines)
+
+    if len(lines) == 0:  # All commands ran successfully
+        os.remove(file_name)
+
 
 # This will execute when the file is run.
 if file_exists('JupyterCommands.py'):

@@ -1,28 +1,54 @@
 # Created: 05/06/2025 (June 5, 2025)
 # Rename to wien2k_jupyter_interface??
 
-# TODO: Make these import statements local to the functions. This allows us to not force user to make imports if they don't
-    # want to user the server functionality
-
 from getpass import getpass # Create server connection
-
-import h5py # To convert to h5
-import numpy as np
 from fabric import Connection # To get python notebook connection to server
+import h5py # To convert to h5
 import chardet # Find Encoding
 import os
 from pathlib import Path
-import subprocess
 import re
 import hashlib
 import time # For testing purposes only
-import datetime # For logbook
 
-##### Main class
+###################################################################################################################
+"""
+Updated Jan 8, 2026
+Function Interactions and their impact to server calculations
+
+create_new_calculations()
+    - Writes JupyterCommands.py holding calculation arguments
+initialize_server()
+    - Sets up parameters with server info. Does not connect
+submit_calculation()
+    - Connects to server and uploads JupyterCommands.py and initialization.py, then starts program
+upload_file()
+    - If user wants to manually upload a file
+find_encoding()
+    - Used when different servers might have different file encodings. Only if error.
+download_info()
+    - Connects to server and downloads all files that have changed since last iteration
+    - check_file_modified()
+    - md5()
+    - convert_to_hdf5()
+        * create_dataset()
+"""
+###################################################################################################################
+# Main Class
 
 class JupyterInterface:
     """
-    Hela
+    List of parameters that you can customize and their default values
+    rkmax = None,           nn = None,
+    functional = None,      cutoff_energy = None,
+    kgen = None,            e_range = (-10.0, 4),
+    cif_file = None,        encoding_type = None,
+    errors = None,          sbatch = None,
+    scf_type = "Basic",     xspec = "True",
+    resubmit = "False",     scratch = "$SCRATCH",
+    xspec_config = None,    email_address = None,
+    account = None,         cpu_limit = 32,
+    node_limit = 3,         timelimit = "01:00:00"
     """
 
     def __init__(self, cif_file):
@@ -67,6 +93,7 @@ class JupyterInterface:
 
         Returns
         -------
+        Parameters for server connection
         """
 
         self.working_directory = working_directory
@@ -83,6 +110,13 @@ class JupyterInterface:
             self.server_connection = Connection(self.server_name, connect_kwargs={"key_filename": ssh_key})
 
     def submit_calculations(self):
+        """
+        Puts the list of calculations onto the server, along with python program, then runs it.
+
+        Returns
+        -------
+        Two files onto server, and job submission.
+        """
         if self.server_connection is not None:
             with self.server_connection as c:
                 c.put(self.cif_file, self.working_directory) # Upload cif file
@@ -95,6 +129,18 @@ class JupyterInterface:
             print("No connection to server")
 
     def upload_file(self,filename,overwrite=False):
+        """
+        Allows user to upload a single file
+
+        Parameters
+        ----------
+        filename: File to be uploaded
+        overwrite: If file exists, do not overwrite. Currently non-functional.
+
+        Returns
+        -------
+        File to server
+        """
         if self.server_connection is not None:
             with self.server_connection as c: # This will open and close connection automatically
                 c.put(filename, self.working_directory) # TODO: Check if file already exists
@@ -102,6 +148,14 @@ class JupyterInterface:
             print("No connection to server")
 
     def find_encoding(self):
+        """
+        Reads the two files generated on the server (initialization.py) and attempts to determine which encoding
+        type is present. Then print out to user.
+
+        Returns
+        -------
+        Outputs text to jupyter notebook
+        """
         if self.server_connection is not None:
             with self.server_connection as c:
                 c.get(self.working_directory + '/encoding_stdout')
@@ -117,139 +171,23 @@ class JupyterInterface:
         else:
             print("No connection to server")
 
-    def download_info_old(self, overwrite = False):
-        # TODO: Only download data if we know that it has converged. (Can be based on the xspec folder perhaps)
-        # TODO: Could this be implemented by using a bash script that does it all at once. Create a local hash that sees whether it needs to download new folders. No need to check local versions.
-        # TODO: Issue if people want to manually download their data and then convert to h5...
-        #rsync -vaP somersc0@cedar.alliancecan.ca:/home/somersc0/projects/def-moewes/somersc0/CoFeMnPlusU/PlusUOnlyCo/xspec_export /Users/cas003/Downloads/scratch
-        #subprocess.run(f'scp -r somersc0@cedar.alliancecan.ca:/home/somersc0/projects/def-moewes/somersc0/Test/TeakTest/TiCv2_006 ./', shell=True)
-
-
-        if self.server_connection is not None:
-            with self.server_connection as c: # This will open and close connection automatically
-                print("Starting download")
-                start_time = time.perf_counter()
-
-                with c.cd(self.working_directory):
-                    folder_name = Path(self.cif_file).stem
-                    #folders = c.run(f'ls | grep {folder_name}_')
-                    #c.run(f'find -type d | grep {folder_name} > foldernames.txt')
-                    c.run(f'find ~+ -type f | grep {folder_name}_ > foldernames.txt')
-                    c.get(f"{self.working_directory}/foldernames.txt")
-                    try:
-                        c.get(f"{self.working_directory}/checksums.txt")
-                    except:
-                        pass
-                    current_folder = os.getcwd()
-                    storage_folder = f"StorageFor{folder_name}"
-                    Path(storage_folder).mkdir(exist_ok=True)
-
-                if overwrite: # This will cause issues until we solve only importing
-                    h5_flag = 'w'
-                else:
-                    h5_flag = 'a'
-                with open("foldernames.txt", 'r') as f:
-                    with h5py.File(Path(self.cif_file).stem + ".hdf5", 'w') as file:  # Main file to store all info #TODO: Change to h5_flag
-                        for line in f:
-                            # TODO: Might break in windows with the different slash directions
-                            # TODO: Figure out how to check if it changed from previous versions. So, using md5sum likely.
-                            # TODO: Create the datastructure at the same time that we download info
-                                # We generate the md5sum on our local computer, and upload that
-                                # Or see if we can md5sum the entire directory
-                                # Likely better to make it as a tar and get a single file. Then easy to compare md5sum likely
-
-                            # The location of the file on the local computer and where we want to put it.
-                            file_location = current_folder + '/' + storage_folder + '/' + Path(line.strip()).parent.name + '/' + Path(line.strip()).name
-                            """ if overwrite:
-                                Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
-                                c.get(line.strip(), file_location)
-                            else:
-                                if not os.path.exists(file_location):
-                                    Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
-                                    c.get(line.strip(),file_location)
-                                else:
-                                    #print("File already exists")
-                                    pass
-"""
-                            # TODO: Create something that uses grep to find the parameters and stores in a file before we h5 it???
-                            # Check if group exists, if it does then we can delete it and overwrite it with new data???
-                            if Path(line.strip()).suffix == '.in1':  # This is for RKMax, Emin/Emax
-                                Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
-                                c.get(line.strip(), file_location)
-                                with open(file_location, 'r') as in1:
-                                    in1_lines = in1.readlines()
-                                    rkmax = in1_lines[1].split()[0] # Get the second line, first value, which is rkmax
-                                    emin = in1_lines[-1].split()[3] # Last line, second value
-                                    emax = in1_lines[-1].split()[4] # Last line, third value
-                                file.create_dataset(f"{Path(line.strip()).stem}/parameters/rkmax",data=rkmax)
-                                file.create_dataset(f"{Path(line.strip()).stem}/parameters/inputEnergyRange", data=[emin, emax])
-                            if Path(line.strip()).suffix == '.in2':  # GMAX
-                                Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
-                                c.get(line.strip(), file_location)
-                                print(line)
-                            if Path(line.strip()).suffix == '.klist':  # Get the number of k points, as well as k grid
-                                Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
-                                c.get(line.strip(), file_location)
-                                print(line)
-                            if Path(line.strip()).suffix == '.outputd':  # Has everything. gmin, gmax, lattice constants, atoms in unit cell, rkmax
-                                Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
-                                c.get(line.strip(), file_location)
-                                print(line)
-                            if Path(line.strip()).suffix == '.scf2':  # This is for :GAP, :FER, high/low energy sep
-                                Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
-                                c.get(line.strip(), file_location)
-                                with open(file_location, 'r') as scf2:
-                                    scf2_lines = scf2.readlines()
-                                    for i in scf2_lines:
-                                        if re.search(":GAP \(global\)",i): # TODO: Spin polarized has GAP (this spin)
-                                            gap_ry = i.split()[3]
-                                            gap_ev = i.split()[6]
-                                            file.create_dataset(f"{Path(line.strip()).stem}/parameters/bandgap",data=[gap_ry, gap_ev])
-                                        elif re.search(":FER",i):
-                                            fermi = i.split()[9]
-                                            file.create_dataset(f"{Path(line.strip()).stem}/parameters/fermi",data=fermi)
-                                        elif re.search("Energy to separate low and high energystates",i):
-                                            low_high_sep = i.split()[7]
-                                            file.create_dataset(f"{Path(line.strip()).stem}/parameters/energystatesSeparation", data=low_high_sep)
-
-                            if Path(line.strip()).suffix == '.scfc':  # Has the energy of the core states, 1S, 2S, 2P etc.
-                                Path(storage_folder + '/' + Path(line.strip()).parent.name).mkdir(exist_ok=True)
-                                c.get(line.strip(), file_location)
-                                print(line)
-
-                with h5py.File(Path(self.cif_file).stem + ".hdf5", 'r') as file:
-                    #for name in file:
-                    #    print(name)
-                    def printname(name):
-                        print(name)
-                    file.visit(printname)
-
-
-                end_time = time.perf_counter()
-                elapsed_time = end_time - start_time
-                print(f"Execution time: {elapsed_time:.4f} seconds")
-                print("Download complete")
-        else:
-            print("No connection to server")
-
-    def convert_to_hdf5_old(self):
-        with h5py.File(Path(self.cif_file).stem + ".hdf5", 'w') as file: # Main file to store all info
-            # Iterate over all folders in the storage
-            case = file.create_group("ToCv2_006")
-
-            # Parameters to read from files
-            parameters = case.create_group("parameters")
-            parameters.create_dataset("fermi_energy", shape=1, dtype='f') # Make these attributes?
-            parameters.create_dataset("Emin/Emax",shape=(2,1), dtype='f')
-
-            # If they exist, collect the xspec_export folder
-            xspec = case.create_group("xspec")
-
-            # If they exist, collect the dos
-            dos = case.create_group("dos")
-            print("Converting to HDF5")
-
     def download_info(self, overwrite = False, download_all = False):
+        """
+        Creates a hash table to check if any change occurs since the last download.
+        Will download all files that have changes and store them locally.
+        It's roughly 2-3x faster to do hash table check then it is to download all files each time.
+        It then converts them to HDF5 files.
+
+        Parameters
+        ----------
+        overwrite: Not working, want an option that any existing files (even if changed) will not be overwritten.
+        download_all: This forces the program to download all files, even if no change.
+
+        Returns
+        -------
+    `   A local folder containing all server folders with case name
+        An hdf5 file
+        """
         if self.server_connection is not None:
             with self.server_connection as c:  # This will open and close connection automatically
                 print("Starting download")
@@ -328,6 +266,18 @@ class JupyterInterface:
         return
 
     def convert_to_hdf5(self, file_name, overwrite = False):
+        """
+        Converts desired parameters from text into an hdf5 file.
+
+        Parameters
+        ----------
+        file_name: name of file to be converted
+        overwrite: not working. Want option to not overwrite existing files
+
+        Returns
+        -------
+        An hdf5 file
+        """
         # This parses through the files and gets the info we care about
         case_name = Path(file_name.strip()).stem
         if Path(file_name.strip()).suffix == '.in1' or Path(file_name.strip()).suffix == '.in1c':  # This is for RKMax, Emin/Emax
@@ -355,6 +305,9 @@ class JupyterInterface:
 
 
     def print_h5_structure(self):
+        """
+        Prints the entire h5 structure to terminal
+        """
         with h5py.File(Path(self.cif_file).stem + ".hdf5", 'r') as file:
             # for name in file:
             #    print(name)
@@ -363,6 +316,18 @@ class JupyterInterface:
             file.visit(printname)
 
     def create_dataset(self, dataset_name, **kwargs):
+        """
+        Creates a dataset in the hdf5 file. Will overwrite existing dataset.
+
+        Parameters
+        ----------
+        dataset_name: Name of dataset to be created
+        kwargs: Information to be stored in dataset
+
+        Returns
+        -------
+        New dataset in hdf5 file
+        """
         # Only creates a dataset of the information that is actually downloaded from the server. Needs to do that to convert to hdf5
         with h5py.File(Path(self.cif_file).stem + ".hdf5", 'a') as h5_file: # Main file to store all info
             if dataset_name in h5_file.keys():
@@ -372,6 +337,14 @@ class JupyterInterface:
                 h5_file.create_dataset(dataset_name, **kwargs)
 
     def check_file_modified(self):
+        """
+        Puts shell script onto server and checks if file is modified by using hash table.
+        It's faster to run md5sum on directly on server than to send each command individually.
+
+        Returns
+        -------
+        Runs shell script on server
+        """
         if self.server_connection is not None:
             with self.server_connection as c:  # This will open and close connection automatically
                 c.put("check_file_modified.sh", self.working_directory)
@@ -383,11 +356,23 @@ class JupyterInterface:
 
 
 
-
+###################################################################################################################
 ### Helper Functions
 
 def configure_xspec(start, end, edge):
-    # Helper function to print out the xspec_config parameter
+    """
+    Helper function to configure xspec parameters. Will be automated later.
+
+    Parameters
+    ----------
+    start: First atom in the unit cell of a specific edge.
+    end: Final atom in the unit cell of a specific edge.
+    edge: The desired edge. ["1s","2s","2p","3s","3p","3d","4s","4p","4d","4f"]
+
+    Returns
+    -------
+    Prints to terminal the xspec configuration.
+    """
     # array
     array = ["1s","2s","2p","3s","3p","3d","4s","4p","4d","4f"]
     n_arr = [1,2,2,3,3,3,4,4,4,4]
@@ -399,6 +384,9 @@ def configure_xspec(start, end, edge):
 
 
 def md5(fname):
+    """
+    Function to help calculate the md5 hash of a file.
+    """
     hash_md5 = hashlib.md5()
     with open(fname, "rb") as f:
         for chunk in iter(lambda: f.read(4096), b""):
@@ -406,7 +394,7 @@ def md5(fname):
     return hash_md5.hexdigest()
 
 
-# H5 Data Storage
+# H5 Data Storage Rough Structure
 """
 Have a file with the name of the cif
 f = h5py.File('Cif Name', 'a')
