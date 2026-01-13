@@ -229,7 +229,10 @@ class JupyterInterface:
                         bash_command_middle += f"-name '*{extension}' -o "
                     else:
                         bash_command_middle += f"-name '*{extension}'"
-                bash_command = "find ~+ -type f \( " + bash_command_middle + f" \) | grep {folder_name}_ > foldernames.txt"
+                bash_command = "find ~+ -type f " + bash_command_middle + f" | grep {folder_name}_ > foldernames.txt"
+
+                # If we need the \( then add back, but this seems to work
+                # bash_command = "find ~+ -type f \(" + bash_command_middle + f" \) | grep {folder_name}_ > foldernames.txt"
 
                 # On server find all files
                 with c.cd(self.working_directory):
@@ -292,7 +295,8 @@ class JupyterInterface:
             with open(file_name, 'r') as scf2:
                 scf2_lines = scf2.readlines()
                 for i in scf2_lines:
-                    if re.search(":GAP \(global\)", i):  # TODO: Spin polarized has GAP (this spin)
+                    #if re.search(":GAP \(global\)", i):  # TODO: Spin polarized has GAP (this spin)
+                    if re.search(":GAP (global)", i):  # TODO: Spin polarized has GAP (this spin)
                         gap_ry = i.split()[3]
                         gap_ev = i.split()[6]
                         self.create_dataset(f"{case_name}/parameters/bandgap", data=[gap_ry, gap_ev])
