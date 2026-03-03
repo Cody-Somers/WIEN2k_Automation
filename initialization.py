@@ -71,7 +71,7 @@ class Initialization:
 
     def __init__(self,
                  rkmax = None, nn = None, functional = None, cutoff_energy = None, kgen = None, e_range = (-10.0, 4), # For initialization
-                 cif_file = None, encoding_type = None, errors = None, # For initialization
+                 cif_file = None, encoding_type = None, errors = None, precision = None, # For initialization
                  sbatch = None, scf_type = "Basic", xspec = "True", resubmit = "False", scratch = "$SCRATCH", # run.job file
                  email_address = None, account = None, cpu_limit = 32, node_limit = 3, timelimit = "01:00:00", # run.job file
                  xspec_config = None): # xspec_export.sh file
@@ -105,6 +105,7 @@ class Initialization:
         self.ifftfac = None
         self.node_limit = node_limit
         self.timelimit = timelimit
+        self.prec = precision
 
         # TODO: Convert to detection per cluster
         # TODO: Add more info about what each value is, and how it can be changed
@@ -127,7 +128,7 @@ class Initialization:
         self.create_job_file()              # Creates a job file that is later run by the program to submit to slurm
         self.create_xspec_file()            # Creates xspec file that is used by run.job to calculate XAS/XES
         self.create_dos_file()              # Crease a dos calculation file that is used by run.job to calculate Density of States
-        #self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
+        self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
         self.change_directory("../")        # Return out of working directory. (Maybe unnecessary based on how classes work)
 
     # Functions interacting with WIEN2k
@@ -182,6 +183,8 @@ class Initialization:
         Generates list of files for WIEN2k
         """
         initialization_command = 'init_lapw -b'
+        if self.prec is not None:
+            initialization_command += f' -prec {self.prec}'
         if self.rkmax is not None:
             initialization_command += f' -rkmax {self.rkmax}'
         if self.kgen is not None:
@@ -292,7 +295,7 @@ class Initialization:
         if self.xspec not in valid_boolean or self.resubmit not in valid_boolean:
             print("Invalid xspec or resubmit type")
             exit(1)
-        if self.sbatch is not None:
+        if self.sbatch is not None: # TODO: Have another argument that lets users simply add to the sbatch rather than replace it all
             # This uses their own sbatch commands
             with open("run.job", 'w') as job:
                 job.write(f"#!/bin/bash\n") # Header
@@ -409,20 +412,20 @@ class Initialization:
         self.run_terminal_command(f'sbatch run.job')
         return
 
-    def run_terminal_command(self, args):
+    def run_terminal_command(self, args, silent=False):
         """
         Will run a command in terminal and return its output. Has built in error handling.
 
         Parameters
         ----------
         args: command line arguments to be run
+        silent: boolean to determine if command should be printed to terminal.
 
         Returns
         -------
         stdout: return output from command
         exit(1): If error occurred, exit with error code
         """
-        # TODO: Make a silent mode option, as this might be faster than printing out everything to terminal.
         print(args)  # Print input commands for user to see in jupyter notebook
         # Some clusters have different encoding types and may need to be specified manually.
         # Common encoding includes UTF-8/16/32, ASCII
@@ -436,7 +439,8 @@ class Initialization:
             command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True, encoding=self.encoding_type, errors=self.errors)
         else:
             command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True, errors=self.errors)
-        print(command.stdout)  # Print output results for user
+        if not silent:
+            print(command.stdout)  # Print output results for user
 
         # Error handling
         check_error_files()  # Check if case.error files exist, and if they do then exit(1)

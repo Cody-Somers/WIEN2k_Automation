@@ -286,19 +286,18 @@ class JupyterInterface:
         if Path(file_name.strip()).suffix == '.in1' or Path(file_name.strip()).suffix == '.in1c':  # This is for RKMax, Emin/Emax
             with open(file_name, 'r') as in1:
                 in1_lines = in1.readlines()
-                rkmax = in1_lines[1].split()[0]  # Get the second line, first value, which is rkmax
-                emin = in1_lines[-1].split()[3]  # Last line, second value
-                emax = in1_lines[-1].split()[4]  # Last line, third value
+                rkmax = float(in1_lines[1].split()[0])  # Get the second line, first value, which is rkmax
+                emin = float(in1_lines[-1].split()[3])  # Last line, second value
+                emax = float(in1_lines[-1].split()[4])  # Last line, third value
             self.create_dataset(f"{case_name}/parameters/rkmax", data=rkmax)
-            self.create_dataset(f"{case_name}/parameters/inputEnergyRange", data=[emin, emax])
+            self.create_dataset(f"{case_name}/parameters/inputEnergyRange", data = [emin,emax])#data=(float(emin),float(emax))) #data=[emin, emax])
         elif Path(file_name.strip()).suffix == '.scf2':  # This is for :GAP, :FER, high/low energy sep
             with open(file_name, 'r') as scf2:
                 scf2_lines = scf2.readlines()
                 for i in scf2_lines:
-                    #if re.search(":GAP \(global\)", i):  # TODO: Spin polarized has GAP (this spin)
-                    if re.search(":GAP (global)", i):  # TODO: Spin polarized has GAP (this spin)
-                        gap_ry = i.split()[3]
-                        gap_ev = i.split()[6]
+                    if re.search(":GAP \(global\)", i):  # TODO: Spin polarized has GAP (this spin)
+                        gap_ry = float(i.split()[3])
+                        gap_ev = float(i.split()[6])
                         self.create_dataset(f"{case_name}/parameters/bandgap", data=[gap_ry, gap_ev])
                     elif re.search(":FER", i):
                         fermi = i.split()[9]
@@ -312,12 +311,20 @@ class JupyterInterface:
         """
         Prints the entire h5 structure to terminal
         """
-        with h5py.File(Path(self.cif_file).stem + ".hdf5", 'r') as file:
-            # for name in file:
-            #    print(name)
-            def printname(name):
-                print(name)
-            file.visit(printname)
+        try:
+            with h5py.File(Path(self.cif_file).stem + ".hdf5", 'r') as file:
+                # for name in file:
+                #    print(name)
+                def printname(name):
+                    print(name)
+                file.visit(printname)
+        except FileNotFoundError:
+            with h5py.File(Path(self.cif_file).stem + ".h5", 'r') as file:
+                # for name in file:
+                #    print(name)
+                def printname(name):
+                    print(name)
+                file.visit(printname)
 
     def create_dataset(self, dataset_name, **kwargs):
         """
