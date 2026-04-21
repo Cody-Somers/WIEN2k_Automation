@@ -74,9 +74,12 @@ class JupyterInterface:
         -------
         Creates a new file (JupyterCommands.py)
         """
+        kwargs.update({"cif_file": self.cif_file})
         with open("JupyterCommands.py", "a") as file:
             # Initialization(**kwargs).main_program()
-            file.write(f"Initialization(cif_file='{self.cif_file}',{(','.join('{0}={1!r}'.format(k, v) for k, v in kwargs.items()))}).main_program()\n")
+            # file.write(f"Initialization(cif_file='{self.cif_file}',{(','.join('{0}={1!r}'.format(k, v) for k, v in kwargs.items()))}).main_program()\n")
+            file.write(f"Initialization({kwargs}).main_program()\n")
+        # return self
 
     def initialize_server(self, working_directory, server_name, ssh_key=None, password=None):
         """

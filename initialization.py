@@ -69,23 +69,55 @@ class Initialization:
     #n_arr = (1 2 2 3 3 3 4 4 4 4)
     #l_arr = (0 0 1 0 1 2 0 1 2 3)
 
-    def __init__(self,
-                 rkmax = None, nn = None, functional = None, cutoff_energy = None, kgen = None, e_range = (-10.0, 4), # For initialization
-                 cif_file = None, encoding_type = None, errors = None, precision = None, # For initialization
-                 sbatch = None, scf_type = "Basic", xspec = "True", resubmit = "False", scratch = "$SCRATCH", # run.job file
-                 email_address = None, account = None, cpu_limit = 32, node_limit = 3, timelimit = "01:00:00", # run.job file
-                 xspec_config = None): # xspec_export.sh file
+    def __init__(self, user_input): # User input should be a dictionary with keys matching some or all of those provided below.
+
+        # Flags will be True/False booleans, Options will be None/Value/True/False arguments
+
+        # -h = help, -m = manual steps, -b = batch, -sp = spin polarized, -nodstart = new input for converged calcs,
+        # -nokshift = unshifted kmesh, -nometal = reduce k-mesh, -hdlo = set HDLOs in lstart, -nohdlo = do not set HDLOs in lstart
+        self.init_lapw_flags = {"-h":False, "-m":False, "-b":True, "-sp":False, "-nodstart":False, "-nokshift":False,
+                                "-nometal":False, "-hdlo":False, "-nohdlo":False}
+
+        # -f = filehead, -prec = precision, -red = reduced RMT by %, -vxc = functional (PBE), -fftfac = Enhancement factor of fft
+        # -fft = sets grid to XYZ grid, -autofft = sets grid to -1 -1 -1, -ecut = energy separation (-6Ry), -rkmax = RKMAX
+        # -lmax = LMAX (10), -lvns = LVNS_max, -gmax = GMAX, -fermit = use TEMP with smearing, fermits = use TEMPS with smearing
+        # -numk = number of k-points in full BZ, -s = start with program in manual, -e = exit after program in manual
+        self.init_lapw_options = {"-f":None, "-prec":2, "-red":None, "-vxc":None, "-fftfac":None, "-fft":None, "-autofft":False,
+                                  "-ecut":None, "-rkmax":None, "-lmax":None, "-lvns":None, "-gmax":None, "-fermit":None,
+                                  "-fermits":None, "-numk":None, "-s":None, "-e":None}
+
+        # Update the default arguments with the incoming user set values
+        print(user_input)
+        self.init_lapw_flags.update((i, user_input[i]) for i in self.init_lapw_flags.keys() & user_input.keys())
+        self.init_lapw_options.update((i, user_input[i]) for i in self.init_lapw_options.keys() & user_input.keys())
+
+        # TODO: Next step is to take the slurm parameters and make them into a dictionary.
+
+        e_range = (-10.0, 4)
+        # For initialization
+        cif_file = "TiCv2.struct"
+        encoding_type = None
+        errors = None
+        # For initialization
+        sbatch = None
+        scf_type = "Basic"
+        xspec = "True"
+        resubmit = "False"
+        scratch = "$SCRATCH"
+        # run.job file
+        email_address = None
+        account = None
+        cpu_limit = 32
+        node_limit = 3
+        timelimit = "01:00:00"
+        # run.job file
+        xspec_config = None
 
         self.number_of_atoms = None
         self.k_points = None
         if xspec_config is None:
             xspec_config = []
         self.case = get_current_folder_name()
-        self.rkmax = rkmax
-        self.functional = functional
-        self.nn = nn
-        self.cutoff_energy = cutoff_energy
-        self.kgen = kgen
         self.complex_calc = False
         self.e_range = e_range
         self.encoding_type = encoding_type
@@ -105,7 +137,6 @@ class Initialization:
         self.ifftfac = None
         self.node_limit = node_limit
         self.timelimit = timelimit
-        self.prec = precision
 
         # TODO: Convert to detection per cluster
         # TODO: Add more info about what each value is, and how it can be changed
@@ -119,7 +150,7 @@ class Initialization:
 
         Returns
         -------
-        Will initialize the structure and run through nn, init_lapw, etc.
+        Will initialize the structure and run through init_lapw, etc.
         Outputs xspec_export.sh, run.job, dos_export.sh.
         """
         self.change_directory(make_new_working_folder(self.cif_file)) # Change into working directory (Case_000)
@@ -128,7 +159,7 @@ class Initialization:
         self.create_job_file()              # Creates a job file that is later run by the program to submit to slurm
         self.create_xspec_file()            # Creates xspec file that is used by run.job to calculate XAS/XES
         self.create_dos_file()              # Crease a dos calculation file that is used by run.job to calculate Density of States
-        self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
+        # self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
         self.change_directory("../")        # Return out of working directory. (Maybe unnecessary based on how classes work)
 
     # Functions interacting with WIEN2k
@@ -182,18 +213,33 @@ class Initialization:
         -------
         Generates list of files for WIEN2k
         """
-        initialization_command = 'init_lapw -b'
-        if self.prec is not None:
-            initialization_command += f' -prec {self.prec}'
-        if self.rkmax is not None:
-            initialization_command += f' -rkmax {self.rkmax}'
-        if self.kgen is not None:
-            initialization_command += f' -numk {self.kgen}'
-        if self.cutoff_energy is not None:
-            initialization_command += f' -ecut {self.cutoff_energy}'
-        if self.functional is not None:
-            initialization_command += f' -vxc {self.functional}'
-        initialization = self.run_terminal_command(f'{initialization_command}')
+        # TODO: -h and -m break the thing. idk why.
+        initialization_command = 'init_lapw'
+        # Check if they requested the help flag
+        if self.init_lapw_flags["-h"] is True:
+            initialization_command += ' -h'
+            initialization = self.run_terminal_command(f'{initialization_command}')
+            exit()
+        # Check if they opted to do it manually
+        elif self.init_lapw_flags["-m"] is True:
+            initialization_command += ' -m'
+            initialization = self.run_terminal_command(f'{initialization_command}')
+        # Go through the batch submission with all selected options
+        else:
+            # Add the flags (spin polarized etc.)
+            for key, value in self.init_lapw_flags.items():
+                if value is True:
+                    initialization_command += ' ' + key
+            # Add the options and the values (rkmax etc.)
+            for key, value in self.init_lapw_options.items():
+                if value not in (None, False):
+                    if key == '-autofft':
+                        initialization_command += ' ' + key
+                    elif key == '-fft':
+                        initialization_command += ' ' + key + ' ' + str(value[0]) + ' ' + str(value[1]) + ' ' + str(value[2])
+                    else:
+                        initialization_command += ' ' + key + ' ' + str(value)
+            initialization = self.run_terminal_command(f'{initialization_command}')
 
         # Update case.in1_st to increase energy range
         # TODO: Monitor if this has a significant impact on computation time
