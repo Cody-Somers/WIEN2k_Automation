@@ -93,6 +93,14 @@ class Initialization:
 
         # TODO: Next step is to take the slurm parameters and make them into a dictionary.
 
+        self.slurm_options = {"--job-name":None, "--mail-user":None, "--mail_type":None,
+                              "--nodes":None, "--ntasks-per-node":None, "--mem":None, "--time":None, "max-ntasks-per-node":32,
+                              "--account":None, "--partition":None, "misc":[]}
+        self.slurm_options.update((i, user_input[i]) for i in self.slurm_options.keys() & user_input.keys())
+
+        self.WIEN2k_options = {"slurm":None}
+        self.WIEN2k_options.update((i, user_input[i]) for i in self.WIEN2k_options.keys() & user_input.keys())
+
         e_range = (-10.0, 4)
         # For initialization
         cif_file = "TiCv2.struct"
@@ -101,6 +109,7 @@ class Initialization:
         # For initialization
         sbatch = None
         scf_type = "Basic"
+        # Will need to check is -sp flag is set. Add a function for mbj, spin polarized, plus U, and corehole
         xspec = "True"
         resubmit = "False"
         scratch = "$SCRATCH"
@@ -253,6 +262,7 @@ class Initialization:
 
         # Get input parameters provided from the terminal output of the init_lapw command
         # TODO: Check if stopping print to notebook will impact this search
+        # TODO: Turn this into a dictionary
         for line in initialization.splitlines():
             if "SPACE GROUP DOES NOT CONTAIN INVERSION" in line: # Is this the best check for complex calcs?
                 self.complex_calc = True
@@ -333,71 +343,115 @@ class Initialization:
         A run.job file containing slurm information.
         """
         # TODO: Find way to let them use entire job file if they so desire
-        valid_scf_types = ["Basic", "PlusU", "SpinPolar", "ForceMin"]
-        valid_boolean = ["True", "False"] # TODO: Make this an actual boolean??
-        if self.scf_type not in valid_scf_types:
-            print("Invalid scf type")
-            exit(1)
-        if self.xspec not in valid_boolean or self.resubmit not in valid_boolean:
-            print("Invalid xspec or resubmit type")
-            exit(1)
-        if self.sbatch is not None: # TODO: Have another argument that lets users simply add to the sbatch rather than replace it all
-            # This uses their own sbatch commands
-            with open("run.job", 'w') as job:
-                job.write(f"#!/bin/bash\n") # Header
-                # If they want their own full sbatch commands
-                job.write(self.sbatch + '\n') # SBATCH arguments
+        # TODO: Have argument that lets user use SBATCH only their commands
 
+        # First we need to determine the allocation requirements
+        if self.slurm_options["--ntasks-per-node"] and self.slurm_options["--nodes"] is not None:
+            pass
         else:
-            # This makes use of an automation script to determine ntasks etc.
-            with open("run.job", 'w') as job:
-                job.write(f"#!/bin/bash\n") # Header
-                job.write(f'#SBATCH -J {self.case}\n')
-                if self.email_address is not None:
-                    job.write(f'#SBATCH --mail-user={self.email_address}\n')
-                    job.write(f'#SBATCH --mail-type=END\n')
-                # Here we need the nodes, ntasks, mem
-                # TODO: Found error where when you limit cpu, and increase node limit, gets more than desired
-                ntasks = int(1.2 ** float(self.rkmax) * int(self.number_of_atoms) ** 0.45 - 1.5)
-                # TODO: gmin and k mesh look at instead of rkmax atoms, and number of bands, because thats the k points at each.
-                print("original ntasks: " + str(ntasks))
-                requested_nodes = 1
-                requested_nodes_interm = 1
-                k_points_interm = self.k_points
-                ntasks_interm = ntasks
+            # Equation to roughly determine how many tasks a program should have
+            # Based on the number of atoms and the rkmax value of the system.
+            ntasks_goal = int(1.2 ** float(self.rkmax) * int(self.number_of_atoms) ** 0.45 - 1.5)
+            ntasks = 1
+            print("original ntasks to calculate: " + str(ntasks_goal))
+            factored_k_points = sorted(factors(int(self.k_points)))
+            print("factors of k-points: " + str(factored_k_points))
+            for i in range(len(factored_k_points)-1):
+                if factored_k_points[i] <= ntasks_goal:
+                    if abs(factored_k_points[i] - ntasks_goal) < abs(factored_k_points[i+1] - ntasks_goal):
+                        ntasks = factored_k_points[i]
+                    else:
+                        ntasks = factored_k_points[i+1]
 
-                while ntasks > self.cpu_limit and requested_nodes_interm < self.node_limit:
-                    requested_nodes_interm += 1
-                    # Need to check if we can actually divide the number of k-points by the number of nodes that we want.
-                    if int(self.k_points) % int(requested_nodes_interm) == 0:
-                        requested_nodes = requested_nodes_interm
-                        ntasks_interm = int(ntasks) / int(requested_nodes)
-                        k_points_interm = int(self.k_points) / int(requested_nodes)
-                        print("Updated ntasks" + str(ntasks_interm))
-                # Finds the closest value in factor list to our originally calculated ntasks value
-                factored_kpoints = sorted(factors(int(k_points_interm)))
-                factored_kpoints[:] = [x for x in factored_kpoints if x <= self.cpu_limit] # restricts possible nodes to below cpu limit
-                ntasks = min(factored_kpoints, key=lambda i: abs(ntasks_interm - i))
-                print("ntasks before cropping" + str(ntasks))
-                if ntasks < 1:
-                    ntasks = 1
-                print("factored_kpoints" + str(factored_kpoints))
-                print("ntasks" + str(ntasks))
-                print("requested_nodes" + str(requested_nodes))
+            print("ntasks: " + str(ntasks))
 
-                job.write(f'#SBATCH --nodes={requested_nodes}\n')
-                job.write(f'#SBATCH --ntasks-per-node={ntasks}\n')
-                # TODO: Find memory and time based on number of atoms and precision level
-                job.write(f'#SBATCH --mem={int(3.9*ntasks*requested_nodes)}G\n') # This gives 4GB per cpu. Let user change
-                job.write(f'#SBATCH --time={self.timelimit}\n')
+            # Calculate the maximum number of nodes needed to accommodate all the tasks
+            self.slurm_options["--nodes"] = 1
+            print("max ntasks: " + str(self.slurm_options["max-ntasks-per-node"]))
+            while ntasks > self.slurm_options["--nodes"] * self.slurm_options["max-ntasks-per-node"]:
+                self.slurm_options["--nodes"] += 1
 
-                job.write(f'#SBATCH --get-user-env\n')
-                job.write(f'#SBATCH --account={self.account}\n')
-                job.write(f'scf_type="{self.scf_type}"\n')
-                job.write(f'xspec="{self.xspec}"\n')
-                job.write(f'resubmit="{self.resubmit}"\n')
-                job.write(f'setenv SCRATCH {self.scratch}\n')
-                job.write(job_file_script_no_header())
+            print("nodes: " + str(self.slurm_options["--nodes"]))
+
+            # Take ntasks and divide by number of nodes, then round up
+            self.slurm_options["--ntasks-per-node"] = -(-ntasks // self.slurm_options["--nodes"])
+
+            print("ntasks-per-node: " + str(self.slurm_options["--ntasks-per-node"]))
+
+            print("total tasks " + str(self.slurm_options["--ntasks-per-node"] * self.slurm_options["--nodes"]))
+            print("discreptancy " + str(self.slurm_options["--ntasks-per-node"] * self.slurm_options["--nodes"] - ntasks))
+            # TODO: Make this better to take into account the k-points/nodes first...
+
+            # Calculate the number of k-points available, then check the two values that surround
+            # the ntasks_goal. Find the value that is closest to the goal
+            # Then determine the nodes and ntasks per node to accomodate that k-point value.
+
+
+            # This will calculate the number of nodes that we need, at most, to reach our goal
+            if self.slurm_options["--nodes"] is None:
+                self.slurm_options["--nodes"] = 1
+            while ntasks > self.slurm_options["--ntasks-per-node"]*self.slurm_options["max-ntasks-per-node"]:
+                self.slurm_options["--nodes"] += 1
+
+        # Here we need the nodes, ntasks, mem
+        # TODO: Found error where when you limit cpu, and increase node limit, gets more than desired
+        # TODO: gmin and k mesh look at instead of rkmax atoms, and number of bands, because thats the k points at each.
+        ntasks = 1
+        requested_nodes = 1
+        requested_nodes_interm = 1
+        k_points_interm = self.k_points
+        ntasks_interm = ntasks
+
+        while ntasks > self.cpu_limit and requested_nodes_interm < self.node_limit:
+            requested_nodes_interm += 1
+            # Need to check if we can actually divide the number of k-points by the number of nodes that we want.
+            if int(self.k_points) % int(requested_nodes_interm) == 0:
+                requested_nodes = requested_nodes_interm
+                ntasks_interm = int(ntasks) / int(requested_nodes)
+                k_points_interm = int(self.k_points) / int(requested_nodes)
+                print("Updated ntasks" + str(ntasks_interm))
+        # Finds the closest value in factor list to our originally calculated ntasks value
+        factored_kpoints = sorted(factors(int(k_points_interm)))
+        factored_kpoints[:] = [x for x in factored_kpoints if
+                               x <= self.cpu_limit]  # restricts possible nodes to below cpu limit
+        ntasks = min(factored_kpoints, key=lambda i: abs(ntasks_interm - i))
+        print("ntasks before cropping" + str(ntasks))
+        if ntasks < 1:
+            ntasks = 1
+        print("factored_kpoints" + str(factored_kpoints))
+        print("ntasks" + str(ntasks))
+        print("requested_nodes" + str(requested_nodes))
+
+        # Write the parameters to the run.job program
+        with open("run.job", 'w') as job:
+            job.write(f"#!/bin/bash\n") # Header
+            job.write(f'#SBATCH --get-user-env\n')
+            for key, value in self.slurm_options.items():
+                if value is not None: # User input a value here
+                    if key == "misc":
+                        for i in range(len(value)):
+                            job.write(f"#SBATCH {value[i]}\n")
+                    elif key == "max-ntasks-per-node":
+                        pass
+                    else:
+                        job.write(f"#SBATCH {key}={value}\n")
+                else: # value is none, so we need to choose it ourselves
+                    if key == "--job-name":
+                        job.write(f'#SBATCH -J {self.case}\n')
+
+
+            job.write(f'#SBATCH --nodes={requested_nodes}\n')
+            job.write(f'#SBATCH --ntasks-per-node={ntasks}\n')
+            # TODO: Find memory and time based on number of atoms and precision level
+            job.write(f'#SBATCH --mem={int(3.9*ntasks*requested_nodes)}G\n') # This gives 4GB per cpu. Let user change
+            job.write(f'#SBATCH --time={self.timelimit}\n')
+
+            job.write(f'#SBATCH --account={self.account}\n')
+            job.write(f'scf_type="{self.scf_type}"\n')
+            job.write(f'xspec="{self.xspec}"\n')
+            job.write(f'resubmit="{self.resubmit}"\n')
+            job.write(f'export SCRATCH {self.scratch}\n')
+            job.write(job_file_script_no_header())
 
     def create_xspec_file(self):
         """
@@ -664,7 +718,7 @@ def job_file_script_no_header():
     job = """
 # Gets the hosts and puts it into the .machines file.
 srun hostname -s  >slurm.hosts
-rm .machines
+rm -f .machines
 proclist=$(< slurm.hosts sort)
 echo -e "$proclist" > tempproclist
 while IFS= read -r line; do
