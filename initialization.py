@@ -349,78 +349,64 @@ class Initialization:
         if self.slurm_options["--ntasks-per-node"] and self.slurm_options["--nodes"] is not None:
             pass
         else:
-            # Equation to roughly determine how many tasks a program should have
+            # Equation to roughly determine how many tasks a program should have TODO: Update equation as necessary
             # Based on the number of atoms and the rkmax value of the system.
-            ntasks_goal = int(1.2 ** float(self.rkmax) * int(self.number_of_atoms) ** 0.45 - 1.5)
+            #ntasks_goal = int(1.2 ** float(self.rkmax) * int(self.number_of_atoms) ** 0.45 - 1.5)
+            ntasks_goal = int((1.2 ** float(self.rkmax)) * (int(self.number_of_atoms) ** 0.35) * (int(self.k_points) ** 0.20) - 15)
             ntasks = 1
+            self.slurm_options["--nodes"] = 1
             print("original ntasks to calculate: " + str(ntasks_goal))
+            # Figure out how many nodes are required to get the goal below the threshold of max cpu per node
+            # Divides and then rounds up the goal until it is lower than max-ntasks-per-node
+            ntasks_goal_per_node = int(-(-ntasks_goal // self.slurm_options["--nodes"]))
+            while ntasks_goal_per_node >= int(self.slurm_options["max-ntasks-per-node"]):
+                self.slurm_options["--nodes"] += 1
+                ntasks_goal_per_node = int(-(-ntasks_goal // self.slurm_options["--nodes"]))
+                #print(-(-ntasks_goal // self.slurm_options["--nodes"]))
+
+            print("We want roughly this many nodes " + str(self.slurm_options["--nodes"]))
+            print("And our goal per node is " + str(ntasks_goal_per_node))
             factored_k_points = sorted(factors(int(self.k_points)))
             print("factors of k-points: " + str(factored_k_points))
-            for i in range(len(factored_k_points)-1):
-                if factored_k_points[i] <= ntasks_goal:
-                    if abs(factored_k_points[i] - ntasks_goal) < abs(factored_k_points[i+1] - ntasks_goal):
+
+            # Find the number of requested nodes that is closest to a divisible number of k-points
+            node_temp = 1
+            for i in range(len(factored_k_points) - 1):
+                if factored_k_points[i] <= self.slurm_options["--nodes"]:
+                    if abs(factored_k_points[i] - self.slurm_options["--nodes"]) < abs(factored_k_points[i + 1] - self.slurm_options["--nodes"]):
+                        node_temp = factored_k_points[i]
+                    else:
+                        node_temp = factored_k_points[i + 1]
+            self.slurm_options["--nodes"] = node_temp
+            print("So we should have this many nodes " + str(self.slurm_options["--nodes"]))
+
+            # Update our goal of ntasks-per-node based oun our newly found nodes
+            ntasks_goal_per_node = int(-(-ntasks_goal // self.slurm_options["--nodes"]))
+            print("And our updated goal per node is " + str(ntasks_goal_per_node))
+
+            # Find the new number of k-points per node and the factors
+            if int(self.k_points) % int(self.slurm_options["--nodes"]) != 0:
+                print("The selection algorithm messed up and the number of tasks is not perfect.")
+            factored_k_points = sorted(factors(int(self.k_points) // int(self.slurm_options["--nodes"])))
+            print("New factors of k-points: " + str(factored_k_points))
+
+            # Find the number of tasks that matches closest with our goal, but still a factor of k-points
+            for i in range(len(factored_k_points) - 1):
+                if factored_k_points[i] <= ntasks_goal_per_node and factored_k_points[i + 1] <= int(self.slurm_options["max-ntasks-per-node"]):
+                    if abs(factored_k_points[i] - ntasks_goal_per_node) < abs(factored_k_points[i + 1] - ntasks_goal_per_node):
                         ntasks = factored_k_points[i]
                     else:
-                        ntasks = factored_k_points[i+1]
+                        ntasks = factored_k_points[i + 1]
+            self.slurm_options["--ntasks-per-node"] = ntasks
+            print("And should have this many ntasks per node " + str(self.slurm_options["--ntasks-per-node"]))
 
-            print("ntasks: " + str(ntasks))
+            # Check if we are requesting more nodes that tasks-per-node. Means we have it backwards. (edge cases of limited k-point factors)
+            if int(self.slurm_options["--ntasks-per-node"]) < int(self.slurm_options["--nodes"]) <= int(self.slurm_options["max-ntasks-per-node"]):
+                self.slurm_options["--ntasks-per-node"], self.slurm_options["--nodes"] = self.slurm_options["--nodes"], self.slurm_options["--ntasks-per-node"]
 
-            # Calculate the maximum number of nodes needed to accommodate all the tasks
-            self.slurm_options["--nodes"] = 1
-            print("max ntasks: " + str(self.slurm_options["max-ntasks-per-node"]))
-            while ntasks > self.slurm_options["--nodes"] * self.slurm_options["max-ntasks-per-node"]:
-                self.slurm_options["--nodes"] += 1
-
-            print("nodes: " + str(self.slurm_options["--nodes"]))
-
-            # Take ntasks and divide by number of nodes, then round up
-            self.slurm_options["--ntasks-per-node"] = -(-ntasks // self.slurm_options["--nodes"])
-
-            print("ntasks-per-node: " + str(self.slurm_options["--ntasks-per-node"]))
-
-            print("total tasks " + str(self.slurm_options["--ntasks-per-node"] * self.slurm_options["--nodes"]))
-            print("discreptancy " + str(self.slurm_options["--ntasks-per-node"] * self.slurm_options["--nodes"] - ntasks))
-            # TODO: Make this better to take into account the k-points/nodes first...
-
-            # Calculate the number of k-points available, then check the two values that surround
-            # the ntasks_goal. Find the value that is closest to the goal
-            # Then determine the nodes and ntasks per node to accomodate that k-point value.
+            print("Our final values are " + str(self.slurm_options["--nodes"]) + " nodes and " + str(self.slurm_options["--ntasks-per-node"]) + " tasks")
 
 
-            # This will calculate the number of nodes that we need, at most, to reach our goal
-            if self.slurm_options["--nodes"] is None:
-                self.slurm_options["--nodes"] = 1
-            while ntasks > self.slurm_options["--ntasks-per-node"]*self.slurm_options["max-ntasks-per-node"]:
-                self.slurm_options["--nodes"] += 1
-
-        # Here we need the nodes, ntasks, mem
-        # TODO: Found error where when you limit cpu, and increase node limit, gets more than desired
-        # TODO: gmin and k mesh look at instead of rkmax atoms, and number of bands, because thats the k points at each.
-        ntasks = 1
-        requested_nodes = 1
-        requested_nodes_interm = 1
-        k_points_interm = self.k_points
-        ntasks_interm = ntasks
-
-        while ntasks > self.cpu_limit and requested_nodes_interm < self.node_limit:
-            requested_nodes_interm += 1
-            # Need to check if we can actually divide the number of k-points by the number of nodes that we want.
-            if int(self.k_points) % int(requested_nodes_interm) == 0:
-                requested_nodes = requested_nodes_interm
-                ntasks_interm = int(ntasks) / int(requested_nodes)
-                k_points_interm = int(self.k_points) / int(requested_nodes)
-                print("Updated ntasks" + str(ntasks_interm))
-        # Finds the closest value in factor list to our originally calculated ntasks value
-        factored_kpoints = sorted(factors(int(k_points_interm)))
-        factored_kpoints[:] = [x for x in factored_kpoints if
-                               x <= self.cpu_limit]  # restricts possible nodes to below cpu limit
-        ntasks = min(factored_kpoints, key=lambda i: abs(ntasks_interm - i))
-        print("ntasks before cropping" + str(ntasks))
-        if ntasks < 1:
-            ntasks = 1
-        print("factored_kpoints" + str(factored_kpoints))
-        print("ntasks" + str(ntasks))
-        print("requested_nodes" + str(requested_nodes))
 
         # Write the parameters to the run.job program
         with open("run.job", 'w') as job:
@@ -440,13 +426,7 @@ class Initialization:
                         job.write(f'#SBATCH -J {self.case}\n')
 
 
-            job.write(f'#SBATCH --nodes={requested_nodes}\n')
-            job.write(f'#SBATCH --ntasks-per-node={ntasks}\n')
-            # TODO: Find memory and time based on number of atoms and precision level
-            job.write(f'#SBATCH --mem={int(3.9*ntasks*requested_nodes)}G\n') # This gives 4GB per cpu. Let user change
-            job.write(f'#SBATCH --time={self.timelimit}\n')
 
-            job.write(f'#SBATCH --account={self.account}\n')
             job.write(f'scf_type="{self.scf_type}"\n')
             job.write(f'xspec="{self.xspec}"\n')
             job.write(f'resubmit="{self.resubmit}"\n')
