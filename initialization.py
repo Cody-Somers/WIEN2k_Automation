@@ -86,21 +86,23 @@ class Initialization:
                                   "-ecut":None, "-rkmax":None, "-lmax":None, "-lvns":None, "-gmax":None, "-fermit":None,
                                   "-fermits":None, "-numk":None, "-s":None, "-e":None}
 
+        # See slurm website for more info on these parameters
+        # https://slurm.schedmd.com/sbatch.html
+        self.slurm_options = {"--job-name":None, "--mail-user":None, "--mail_type":None, "--account":None, "--partition":None,
+                              "--nodes":None, "--ntasks-per-node":None, "--mem":None, "--time":None,
+                              "max-ntasks-per-node":32, "max-mem-per-cpu":3.9, "misc":[]}
+
+        self.WIEN2k_options = {"slurm":None}
+
+
         # Update the default arguments with the incoming user set values
         print(user_input)
         self.init_lapw_flags.update((i, user_input[i]) for i in self.init_lapw_flags.keys() & user_input.keys())
         self.init_lapw_options.update((i, user_input[i]) for i in self.init_lapw_options.keys() & user_input.keys())
-
-        # TODO: Next step is to take the slurm parameters and make them into a dictionary.
-
-        self.slurm_options = {"--job-name":None, "--mail-user":None, "--mail_type":None,
-                              "--nodes":None, "--ntasks-per-node":None, "--mem":None, "--time":None, "max-ntasks-per-node":32,
-                              "--account":None, "--partition":None, "misc":[]}
         self.slurm_options.update((i, user_input[i]) for i in self.slurm_options.keys() & user_input.keys())
-
-        self.WIEN2k_options = {"slurm":None}
         self.WIEN2k_options.update((i, user_input[i]) for i in self.WIEN2k_options.keys() & user_input.keys())
 
+        # TODO: Convert these parameters below into a dictionary and safely remove their references from program.
         e_range = (-10.0, 4)
         # For initialization
         cif_file = "TiCv2.struct"
@@ -113,13 +115,6 @@ class Initialization:
         xspec = "True"
         resubmit = "False"
         scratch = "$SCRATCH"
-        # run.job file
-        email_address = None
-        account = None
-        cpu_limit = 32
-        node_limit = 3
-        timelimit = "01:00:00"
-        # run.job file
         xspec_config = None
 
         self.number_of_atoms = None
@@ -138,16 +133,10 @@ class Initialization:
         self.resubmit = resubmit
         self.scratch = scratch
         self.xspec_config = xspec_config
-        self.email_address = email_address
-        self.account = account
-        self.cpu_limit = cpu_limit
         self.lvns = None
         self.gmax = None
         self.ifftfac = None
-        self.node_limit = node_limit
-        self.timelimit = timelimit
 
-        # TODO: Convert to detection per cluster
         # TODO: Add more info about what each value is, and how it can be changed
         # TODO: Put all of the final self parameters into a text file to output to user.
 
@@ -249,7 +238,10 @@ class Initialization:
                     else:
                         initialization_command += ' ' + key + ' ' + str(value)
             initialization = self.run_terminal_command(f'{initialization_command}')
+        return initialization
 
+    def change_energy(self):
+        # TODO: Run dstart after changing this file?
         # Update case.in1_st to increase energy range
         # TODO: Monitor if this has a significant impact on computation time
             # If yes then do it after convergence and rerun scf cycle again with increased energy range. lapw1 and lapw2 -qtl
@@ -260,6 +252,7 @@ class Initialization:
         except:
             replace(self.case + ".in1c", default_energy, replace_energy)
 
+    def get_parameters(self, initialization):
         # Get input parameters provided from the terminal output of the init_lapw command
         # TODO: Check if stopping print to notebook will impact this search
         # TODO: Turn this into a dictionary
@@ -330,7 +323,6 @@ class Initialization:
 
             #TODO: Make sure the Emin and Emax are a specified value in the nDOS calc .int file.
             # -20 to 20
-
 
     def create_job_file(self):
         """
@@ -407,6 +399,15 @@ class Initialization:
             print("Our final values are " + str(self.slurm_options["--nodes"]) + " nodes and " + str(self.slurm_options["--ntasks-per-node"]) + " tasks")
 
 
+        # Now to set the memory and the time components
+        if self.slurm_options["--mem"] is None:
+            self.slurm_options["--mem"] = str(round(float(self.slurm_options["max-mem-per-cpu"]) * int(self.slurm_options["--ntasks-per-node"]))) + "G"
+
+        if self.slurm_options["--time"] is None:
+            self.slurm_options["--time"] = "24:00:00"
+
+        if self.slurm_options["--job-name"] is None:
+            self.slurm_options["--job-name"] = self.case
 
         # Write the parameters to the run.job program
         with open("run.job", 'w') as job:
@@ -415,23 +416,28 @@ class Initialization:
             for key, value in self.slurm_options.items():
                 if value is not None: # User input a value here
                     if key == "misc":
-                        for i in range(len(value)):
-                            job.write(f"#SBATCH {value[i]}\n")
-                    elif key == "max-ntasks-per-node":
+                        if isinstance(value, list):
+                            for i in range(len(value)):
+                                job.write(f"#SBATCH {value[i]}\n")
+                        else:
+                            print("WARNING: misc parameter is formatted incorrectly. Ensure it is a list")
+                    elif key == "max-ntasks-per-node" or key == "max-mem-per-cpu":
                         pass
                     else:
                         job.write(f"#SBATCH {key}={value}\n")
                 else: # value is none, so we need to choose it ourselves
-                    if key == "--job-name":
-                        job.write(f'#SBATCH -J {self.case}\n')
+                    print("No value given for " + key)
 
-
-
+            #TODO: Update the WIEN2k commands
             job.write(f'scf_type="{self.scf_type}"\n')
             job.write(f'xspec="{self.xspec}"\n')
             job.write(f'resubmit="{self.resubmit}"\n')
             job.write(f'export SCRATCH {self.scratch}\n')
             job.write(job_file_script_no_header())
+
+        with open("run.job", "r") as job:
+            for i in range(20):
+                print(job.readline())
 
     def create_xspec_file(self):
         """

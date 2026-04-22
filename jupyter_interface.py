@@ -36,6 +36,8 @@ download_info()
 ###################################################################################################################
 # Main Class
 
+# TODO: Change it so that it does all the value finding on the server, then sends a single file of parameters + the dos/xspec files.
+
 class JupyterInterface:
     """
     List of parameters that you can customize and their default values
@@ -127,7 +129,7 @@ class JupyterInterface:
                 c.put('JupyterCommands.py', self.working_directory) # Upload calculations to run
                 # TODO: Remove jupytercommands from local server after successful upload
                 with c.cd(self.working_directory):
-                    c.run('python initialization.py') # Gotta have python on cluster
+                    c.run('python initialization.py') # Ensure python on cluster
         else:
             print("No connection to server")
 
@@ -359,6 +361,7 @@ class JupyterInterface:
         -------
         Runs shell script on server
         """
+        # TODO: Ah, is this why we have 2 server connections whenever we download the files?
         if self.server_connection is not None:
             with self.server_connection as c:  # This will open and close connection automatically
                 c.put("check_file_modified.sh", self.working_directory)
