@@ -21,6 +21,7 @@ from tempfile import mkstemp
 # TODO: Make a new job submission with only a single core that does the DOS and the Xtetra
 # TODO: Make error handling better, so that user can actually see error messages from the terminal.
 # TODO: Think about cluster configuration. bash type shell, planc defaults to...
+# TODO: MAke sure k-point convergence test uses a specific precision level
 
 ###################################################################################################################
 """
@@ -238,6 +239,7 @@ class Initialization:
                     else:
                         initialization_command += ' ' + key + ' ' + str(value)
             initialization = self.run_terminal_command(f'{initialization_command}')
+        self.get_parameters(initialization)
         return initialization
 
     def change_energy(self):

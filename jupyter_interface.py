@@ -127,9 +127,11 @@ class JupyterInterface:
                 c.put(self.cif_file, self.working_directory) # Upload cif file
                 c.put('initialization.py', self.working_directory) # Upload program instructions
                 c.put('JupyterCommands.py', self.working_directory) # Upload calculations to run
+                c.put('download_info.py', self.working_directory) # Upload file to compile info on cluster
                 # TODO: Remove jupytercommands from local server after successful upload
                 with c.cd(self.working_directory):
-                    c.run('python initialization.py') # Ensure python on cluster
+                    #c.run('python initialization.py') # Ensure python on cluster
+                    c.run('python download_info.py')
         else:
             print("No connection to server")
 
