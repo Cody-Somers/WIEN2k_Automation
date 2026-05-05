@@ -61,9 +61,11 @@ def gather_info(cif_file):
                             match subfile.suffix:
                                 case ".txspec":
                                     shutil.copy2(subfile, download_folder)
+                                    parameters["xspec"] = True
                                     print(subfile)
                                 case ".dos":
                                     shutil.copy2(subfile, download_folder)
+                                    parameters["dos"] = True
                                     print(subfile)
             file_storage.append(parameters)
     file_storage.sort(key=lambda x: x["case_name"]) # Sort the list of dictionaries based on the case_name

@@ -1,6 +1,6 @@
 # Created: 05/06/2025 (June 5, 2025)
 # Rename to wien2k_jupyter_interface??
-
+import json
 from getpass import getpass # Create server connection
 from fabric import Connection # To get python notebook connection to server
 import h5py # To convert to h5
@@ -171,7 +171,7 @@ class JupyterInterface:
         """
         Creates a hash table to check if any change occurs since the last download.
         Will download all files that have changes and store them locally.
-        For large systems it is roughly 2-3x faster to do hash table check then it is to download all files each time.
+        For large systems (+30sec download times) it is roughly 2x faster to do hash table check then it is to download all files each time.
         It then converts them to HDF5 files.
 
         Parameters
@@ -240,6 +240,8 @@ class JupyterInterface:
                                 c.get(file_location_server.strip())
                                 shutil.move(Path(file_location_server.strip()).name,os.path.join(storage_folder, Path(file_location_server.strip()).name)) # Move into storage folder
 
+                self.convert_to_hdf5(storage_folder)
+
                 end_time = time.perf_counter()
                 elapsed_time = end_time - start_time
                 print(f"Execution time: {elapsed_time:.4f} seconds")
@@ -248,44 +250,26 @@ class JupyterInterface:
             print("No connection to server")
         return
 
-    def convert_to_hdf5(self, file_name, overwrite = False):
+    def convert_to_hdf5(self, storage_folder):
         """
         Converts desired parameters from text into an hdf5 file.
 
         Parameters
         ----------
-        file_name: name of file to be converted
-        overwrite: not working. Want option to not overwrite existing files
+        storage_folder: Path to the folder containing the downloaded files from the cluster.
 
         Returns
         -------
         An hdf5 file
         """
-        # This parses through the files and gets the info we care about
-        case_name = Path(file_name.strip()).stem
-        if Path(file_name.strip()).suffix == '.in1' or Path(file_name.strip()).suffix == '.in1c':  # This is for RKMax, Emin/Emax
-            with open(file_name, 'r') as in1:
-                in1_lines = in1.readlines()
-                rkmax = float(in1_lines[1].split()[0])  # Get the second line, first value, which is rkmax
-                emin = float(in1_lines[-1].split()[3])  # Last line, second value
-                emax = float(in1_lines[-1].split()[4])  # Last line, third value
-            self.create_dataset(f"{case_name}/parameters/rkmax", data=rkmax)
-            self.create_dataset(f"{case_name}/parameters/inputEnergyRange", data = [emin,emax])#data=(float(emin),float(emax))) #data=[emin, emax])
-        elif Path(file_name.strip()).suffix == '.scf2':  # This is for :GAP, :FER, high/low energy sep
-            with open(file_name, 'r') as scf2:
-                scf2_lines = scf2.readlines()
-                for i in scf2_lines:
-                    if re.search(":GAP \(global\)", i):  # TODO: Spin polarized has GAP (this spin)
-                        gap_ry = float(i.split()[3])
-                        gap_ev = float(i.split()[6])
-                        self.create_dataset(f"{case_name}/parameters/bandgap", data=[gap_ry, gap_ev])
-                    elif re.search(":FER", i):
-                        fermi = i.split()[9]
-                        self.create_dataset(f"{case_name}/parameters/fermi", data=fermi)
-                    elif re.search("Energy to separate low and high energystates", i):
-                        low_high_sep = i.split()[7]
-                        self.create_dataset(f"{case_name}/parameters/energystatesSeparation", data=low_high_sep)
-
+        # Just go through the parameters and create the dataset based on the name of each of the keys in the dictionary
+        with open(storage_folder+"/parameter_info.json", 'r') as f:
+            data_list = json.load(f)
+            for i in range(len(data_list)):
+                print(data_list[i])
+                case_name = data_list[i]["case_name"]
+                for key, value in data_list[i].items():
+                    self.create_dataset(f"{case_name}/parameters/{key}", data = value)
 
     def print_h5_structure(self):
         """
