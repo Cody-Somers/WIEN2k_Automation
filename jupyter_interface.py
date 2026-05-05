@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import hashlib
 import time # For testing purposes only
+import shutil
 
 ###################################################################################################################
 """
@@ -40,23 +41,13 @@ download_info()
 
 class JupyterInterface:
     """
-    List of parameters that you can customize and their default values
-    rkmax = None,           nn = None,
-    functional = None,      cutoff_energy = None,
-    kgen = None,            e_range = (-10.0, 4),
-    cif_file = None,        encoding_type = None,
-    errors = None,          sbatch = None,
-    scf_type = "Basic",     xspec = "True",
-    resubmit = "False",     scratch = "$SCRATCH",
-    xspec_config = None,    email_address = None,
-    account = None,         cpu_limit = 32,
-    node_limit = 3,         timelimit = "01:00:00"
+    An interface between a local jupyter notebook and a remote server running Wien2k.
     """
 
     def __init__(self, cif_file):
         with open("JupyterCommands.py", "w") as file:
             pass
-        with open("logbook.txt", "a") as file:
+        with open("logbook.txt", "a") as file:#TODO: Actually do something with logbook
             pass
         self.working_directory = None
         self.server_name = None
@@ -127,11 +118,9 @@ class JupyterInterface:
                 c.put(self.cif_file, self.working_directory) # Upload cif file
                 c.put('initialization.py', self.working_directory) # Upload program instructions
                 c.put('JupyterCommands.py', self.working_directory) # Upload calculations to run
-                c.put('download_info.py', self.working_directory) # Upload file to compile info on cluster
                 # TODO: Remove jupytercommands from local server after successful upload
                 with c.cd(self.working_directory):
-                    #c.run('python initialization.py') # Ensure python on cluster
-                    c.run('python download_info.py')
+                    c.run('python initialization.py') # Ensure python on cluster
         else:
             print("No connection to server")
 
@@ -178,17 +167,16 @@ class JupyterInterface:
         else:
             print("No connection to server")
 
-    def download_info(self, overwrite = False, download_all = False):
+    def download_info(self,do_hash=True):
         """
         Creates a hash table to check if any change occurs since the last download.
         Will download all files that have changes and store them locally.
-        It's roughly 2-3x faster to do hash table check then it is to download all files each time.
+        For large systems it is roughly 2-3x faster to do hash table check then it is to download all files each time.
         It then converts them to HDF5 files.
 
         Parameters
         ----------
-        overwrite: Not working, want an option that any existing files (even if changed) will not be overwritten.
-        download_all: This forces the program to download all files, even if no change.
+        do_hash: Controls whether to perform a hash, or to simply download all files in the DownloadFolder
 
         Returns
         -------
@@ -200,77 +188,62 @@ class JupyterInterface:
                 print("Starting download")
                 start_time = time.perf_counter()
 
-                # Make storage folder
+                c.put('download_info.py', self.working_directory)  # Upload file to compile info on cluster
+                with c.cd(self.working_directory):
+                    c.run('python download_info.py')
+
+                # Make storage folder locally
                 folder_name = Path(self.cif_file).stem
-                current_folder = os.getcwd()
                 storage_folder = f"StorageFor{folder_name}"
                 Path(storage_folder).mkdir(exist_ok=True)
 
-                # Make hash table
-                with open("hash_table.txt", "w") as hash_table:
-                    for dirpath, dirnames, files in os.walk(storage_folder):
-                        for file in files:
-                            #s = f"{file} + md5({dirpath} + '/' + file"
-                            s = file + md5(dirpath + "/" + file) # Note this is our md5 function to get contents
-                            hash_value = hashlib.md5(s.encode()).hexdigest() # This uses general function to get filename in string
-                            hash_table.write(hash_value)
-                            # So we are hashing contents of file, then adding name to the front and hashing that string.
-                            # Co_000.inm gives hash 1e56p (all identical .inm files will give the same hash however)
-                            # Then we hash(Co_000.inm1e56p) and get a new hash
-                            # This allows us to tell if a specific file has changed in contents or name.
+                if do_hash:
+                    # Make hash table
+                    with open("hash_table.txt", "w") as hash_table:
+                        for dirpath, dirnames, files in os.walk(storage_folder):
+                            for file in files:
+                                #s = f"{file} + md5({dirpath} + '/' + file"
+                                s = file + md5(dirpath + "/" + file) # Note this is our md5 function to get contents
+                                hash_value = hashlib.md5(s.encode()).hexdigest() # This uses general function to get filename in string
+                                hash_table.write(hash_value)
+                                # So we are hashing contents of file, then adding name to the front and hashing that string.
+                                # Co_000.inm gives hash 1e56p (all identical .inm files will give the same hash however)
+                                # Then we hash(Co_000.inm1e56p) and get a new hash
+                                # This allows us to tell if a specific file has changed in contents or name.
 
-                            #print("File" + file + " converted locally with hash " + hash_value)
-                c.put("hash_table.txt", self.working_directory) # Throw it onto server
+                                #print("File" + file + " converted locally with hash " + hash_value)
+                    c.put("hash_table.txt", self.working_directory) # Throw it onto server
 
-                # Test if we find the value we want. Remove
-                with open("hash_table.txt", "r") as hash_table:
-                    if "5be6ce84" in hash_table.read():
-                        print("We found it")
-
-
-                # Generate string to only find the files that we want directly from the server
-                files_we_want = ['.in1', 'in1c', '.in2', 'in2c', '.klist', '.outputd', '.scf2', '.scfc', '.txspec','.dos']
-                bash_command_middle = ""
-                for index, extension in enumerate(files_we_want):
-                    if index != len(files_we_want)-1: # Go until last index
-                        bash_command_middle += f"-name '*{extension}' -o "
-                    else:
-                        bash_command_middle += f"-name '*{extension}'"
-                bash_command = "find ~+ -type f " + bash_command_middle + f" | grep {folder_name}_ > foldernames.txt"
-
-                # If we need the \( then add back, but this seems to work
-                # bash_command = "find ~+ -type f \(" + bash_command_middle + f" \) | grep {folder_name}_ > foldernames.txt"
-
-                # On server find all files
-                with c.cd(self.working_directory):
-                    # Find all files in the directory
-                    if download_all: #TODO: Implement this so that it actually pulls all cases
-                        c.run(f'find ~+ -type f | grep {folder_name}_ > foldernames.txt')
+                    # Go through the files in DownloadFolder and download whatever has been updated.
+                    with c.cd(self.working_directory):
+                        c.run(f'find ~+ -type f | grep DownloadFolder > foldernames.txt')
                         c.get(f"{self.working_directory}/foldernames.txt")
-                    else:
-                        c.run(bash_command)
 
-                # On server check to see which files have been changed compared to the ones downloaded locally
-                self.check_file_modified()
-                c.get(f"{self.working_directory}/foldernames_updated.txt")
+                        # On server check to see which files have been changed compared to the ones downloaded locally
+                        c.put("check_file_modified.sh", self.working_directory)
+                        c.run('chmod +x check_file_modified.sh')
+                        c.run('./check_file_modified.sh')
+                        c.get(f"{self.working_directory}/foldernames_updated.txt")
 
-                # Locally, sort through all the files and find the ones that we want
-                with open("foldernames_updated.txt", 'r') as f:
-                    for file_location_server in f:
-                        # TODO: Might break in windows with the different slash directions
-                        # TODO: Figure out how to check if it changed from previous versions. So, using md5sum likely.
+                        # Locally, sort through all the files and find the ones that we want
+                        with open("foldernames_updated.txt", 'r') as f:
+                            for file_location_server in f:
+                                c.get(file_location_server.strip())
+                                shutil.move(Path(file_location_server.strip()).name, os.path.join(storage_folder,Path(file_location_server.strip()).name))
+                else: # This will just download all files, without worrying about hash table. In case md5 doesn't exist on cluster
+                    with c.cd(self.working_directory):
+                        c.run(f'find ~+ -type f | grep DownloadFolder > foldernames.txt') # Get path of files in DownloadFolder
+                        c.get(f"{self.working_directory}/foldernames.txt")
+                        # Locally, sort through all the files and find the ones that we want
+                        with open("foldernames.txt", 'r') as f:
+                            for file_location_server in f:
+                                c.get(file_location_server.strip())
+                                shutil.move(Path(file_location_server.strip()).name,os.path.join(storage_folder, Path(file_location_server.strip()).name)) # Move into storage folder
 
-                        # The location of the file on the local computer and where we want to put it.
-                        # NOTE: We use strip to remove the \n character at the end of the line in the txt file
-                        file_location_local = current_folder + '/' + storage_folder + '/' + Path(file_location_server.strip()).parent.name + '/' + Path(file_location_server.strip()).name
-                        Path(storage_folder + '/' + Path(file_location_server.strip()).parent.name).mkdir(exist_ok=True)
-                        c.get(file_location_server.strip(), file_location_local)
-                        self.convert_to_hdf5(file_location_local)
                 end_time = time.perf_counter()
                 elapsed_time = end_time - start_time
                 print(f"Execution time: {elapsed_time:.4f} seconds")
-                print("Download complete")
-                # TODO: Add server name to download, so if you have identical calculations on different servers then you know which came where.
+                print("Download Complete")
         else:
             print("No connection to server")
         return
@@ -353,27 +326,6 @@ class JupyterInterface:
                 h5_file.create_dataset(dataset_name, **kwargs)
             else:
                 h5_file.create_dataset(dataset_name, **kwargs)
-
-    def check_file_modified(self):
-        """
-        Puts shell script onto server and checks if file is modified by using hash table.
-        It's faster to run md5sum on directly on server than to send each command individually.
-
-        Returns
-        -------
-        Runs shell script on server
-        """
-        # TODO: Ah, is this why we have 2 server connections whenever we download the files?
-        if self.server_connection is not None:
-            with self.server_connection as c:  # This will open and close connection automatically
-                c.put("check_file_modified.sh", self.working_directory)
-                with c.cd(self.working_directory):
-                    c.run('chmod +x check_file_modified.sh')
-                    c.run('./check_file_modified.sh')
-        else:
-            print("No connection to server")
-
-
 
 ###################################################################################################################
 ### Helper Functions
