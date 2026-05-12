@@ -190,7 +190,7 @@ class JupyterInterface:
 
                 c.put('download_info.py', self.working_directory)  # Upload file to compile info on cluster
                 with c.cd(self.working_directory):
-                    c.run('python download_info.py')
+                    c.run(f'python download_info.py {self.cif_file}')
 
                 # Make storage folder locally
                 folder_name = Path(self.cif_file).stem
@@ -266,7 +266,7 @@ class JupyterInterface:
         with open(storage_folder+"/parameter_info.json", 'r') as f:
             data_list = json.load(f)
             for i in range(len(data_list)):
-                print(data_list[i])
+                # print(data_list[i])
                 case_name = data_list[i]["case_name"]
                 for key, value in data_list[i].items():
                     self.create_dataset(f"{case_name}/parameters/{key}", data = value)

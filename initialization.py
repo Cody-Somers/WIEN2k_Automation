@@ -93,7 +93,7 @@ class Initialization:
                               "--nodes":None, "--ntasks-per-node":None, "--mem":None, "--time":None,
                               "max-ntasks-per-node":32, "max-mem-per-cpu":3.9, "misc":[]}
 
-        self.WIEN2k_options = {"slurm":None}
+        self.WIEN2k_inputs = {"cif_file":"", "supercell": [], "corehole_elements": [], "e_range": (-10.0, 4), "xspec_elements": {}}
 
 
         # Update the default arguments with the incoming user set values
@@ -101,12 +101,10 @@ class Initialization:
         self.init_lapw_flags.update((i, user_input[i]) for i in self.init_lapw_flags.keys() & user_input.keys())
         self.init_lapw_options.update((i, user_input[i]) for i in self.init_lapw_options.keys() & user_input.keys())
         self.slurm_options.update((i, user_input[i]) for i in self.slurm_options.keys() & user_input.keys())
-        self.WIEN2k_options.update((i, user_input[i]) for i in self.WIEN2k_options.keys() & user_input.keys())
+        self.WIEN2k_inputs.update((i, user_input[i]) for i in self.WIEN2k_inputs.keys() & user_input.keys())
 
         # TODO: Convert these parameters below into a dictionary and safely remove their references from program.
-        e_range = (-10.0, 4)
         # For initialization
-        cif_file = "TiCv2.struct"
         encoding_type = None
         errors = None
         # For initialization
@@ -124,19 +122,15 @@ class Initialization:
             xspec_config = []
         self.case = get_current_folder_name()
         self.complex_calc = False
-        self.e_range = e_range
         self.encoding_type = encoding_type
         self.errors = errors
-        self.cif_file = cif_file
         self.sbatch = sbatch
         self.scf_type = scf_type
         self.xspec = xspec # TODO: Make this a check if parameter exists, default to False then
         self.resubmit = resubmit
         self.scratch = scratch
         self.xspec_config = xspec_config
-        self.lvns = None
         self.gmax = None
-        self.ifftfac = None
 
         # TODO: Add more info about what each value is, and how it can be changed
         # TODO: Put all of the final self parameters into a text file to output to user.
@@ -152,13 +146,15 @@ class Initialization:
         Will initialize the structure and run through init_lapw, etc.
         Outputs xspec_export.sh, run.job, dos_export.sh.
         """
-        self.change_directory(make_new_working_folder(self.cif_file)) # Change into working directory (Case_000)
+        self.change_directory(make_new_working_folder(self.WIEN2k_inputs["cif_file"])) # Change into working directory (Case_000)
         self.convert_cif_to_struct()        # Uses WIEN2k to convert input cif file to a .struct
         self.initialize_structure_auto()    # Uses the batch command with WIEN2k v23 to auto generate inputs
+        if self.WIEN2k_inputs["corehole_elements"] != [] and self.WIEN2k_inputs["supercell"] != []:
+            self.initialize_structure_auto()
         self.create_job_file()              # Creates a job file that is later run by the program to submit to slurm
         self.create_xspec_file()            # Creates xspec file that is used by run.job to calculate XAS/XES
         self.create_dos_file()              # Crease a dos calculation file that is used by run.job to calculate Density of States
-        # self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
+        self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
         self.change_directory("../")        # Return out of working directory. (Maybe unnecessary based on how classes work)
 
     # Functions interacting with WIEN2k
@@ -173,8 +169,8 @@ class Initialization:
         Outputs a .struct file for later use in the program
         """
         # If the user decides to upload a .struct. Assume they have done setrmt, or chosen accurate rmt values
-        if self.cif_file.endswith('.struct'):
-            shutil.move(self.cif_file, self.case + ".struct") # Update name of provided cif file to Case_000.struct
+        if self.WIEN2k_inputs["cif_file"].endswith('.struct'):
+            shutil.move(self.WIEN2k_inputs["cif_file"], self.case + ".struct") # Update name of provided cif file to Case_000.struct
             return
 
         # If the user decides to upload a .cif file.
@@ -242,19 +238,50 @@ class Initialization:
         self.get_parameters(initialization)
         return initialization
 
+    def initialize_structure_core_hole(self):
+
+
+        return
+
+    def prepare_input_files(self):
+        # This is the prepare input files button from Wien2k
+        shutil.copy(self.case+".in0_st", self.case+".in0") # Copy .in0 file
+        in2_files = [self.case+".in2_ls", self.case+".in2_sy"]
+        if self.complex_calc: # files end with a c to denote complex
+            shutil.copy(self.case + ".in1_st", self.case + ".in1c")
+            # Concatinate the two in2 files
+            with open(self.case + ".in2c", 'wb') as dst:
+                for file in in2_files:
+                    with open(file, 'rb') as src:
+                        shutil.copyfileobj(src, dst)
+
+        else: # These files do not have the c in the name
+            shutil.copy(self.case + ".in1_st", self.case + ".in1")
+            # Concatinate the two in2 files
+            with open(self.case + ".in2", 'wb') as dst:
+                for file in in2_files:
+                    with open(file, 'rb') as src:
+                        shutil.copyfileobj(src, dst)
+
+        shutil.copy(self.case + ".inc_st", self.case + ".inc")
+        shutil.copy(self.case + ".inm_st", self.case + ".inm")
+        shutil.copy(self.case + ".inq_st", self.case + ".inq")
+
     def change_energy(self):
         # TODO: Run dstart after changing this file?
         # Update case.in1_st to increase energy range
         # TODO: Monitor if this has a significant impact on computation time
             # If yes then do it after convergence and rerun scf cycle again with increased energy range. lapw1 and lapw2 -qtl
         default_energy = "4   -9.0       1.5"
-        replace_energy = f"4   {self.e_range[0]}       {self.e_range[1]}"
+        replace_energy = f"4   {self.WIEN2k_inputs['e_range'][0]}       {self.WIEN2k_inputs['e_range'][1]}"
         try:
             replace(self.case + ".in1", default_energy, replace_energy)
         except:
             replace(self.case + ".in1c", default_energy, replace_energy)
 
     def get_parameters(self, initialization):
+        # These parameters should only be used for the initialization and creating of structure. These are not saved afterwards
+        # New final parameters are collected by the download info to ensure that there is no external change errors
         # Get input parameters provided from the terminal output of the init_lapw command
         # TODO: Check if stopping print to notebook will impact this search
         # TODO: Turn this into a dictionary
@@ -263,14 +290,8 @@ class Initialization:
                 self.complex_calc = True
             elif "set RKmax" in line:
                 self.rkmax = line.split()[-1]
-            elif "set LVNS" in line:
-                self.lvns = line.split()[-1]
             elif "set GMAX" in line:
                 self.gmax = line.split()[-1]
-            elif "set IFFTfac" in line:
-                self.ifftfac = line.split()[-1]
-            elif "NUMK" in line:
-                self.kgen = line.split()[-1] # These are input k-points
             elif "k-points generated" in line:
                 self.k_points = line.split()[0] # This is k-mesh generated lattice
             elif "Atoms found:" in line:
@@ -307,6 +328,7 @@ class Initialization:
         -------
         A dos_export.sh file
         """
+        #TODO: Turn off broadening on the dos
         atomic_species = self.get_atomic_species()
         print("GENERATING DOS INPUTS")
         print(atomic_species)
@@ -455,11 +477,20 @@ class Initialization:
             f.write(f"#!/bin/bash\n")  # Header
             f.write(f"set -e\n")
             f.write(f'case_name="{self.case}"\n')
+            # Start creating the atom and orbitals required
+            # Issue is that it is impossible to ask for two orbitals of same element at same time
+            #{"O":"1s","O":"2p"} will default the value to 2p instead of two instances
             atoms = "("
             orbitals = "("
-            for i in range(0,len(self.xspec_config),2):
-                atoms += str(self.xspec_config[i]) + " "
-                orbitals += '"' + str(self.xspec_config[i+1]) + '" '
+            atomic_species = self.get_atomic_species()
+            for key, value in self.WIEN2k_inputs["xspec_elements"].items():
+                if key not in atomic_species:
+                    print(f"WARNING: {key} not in {atomic_species}")
+                    pass
+                else:
+                    for i in range(len(atomic_species[key])):
+                        atoms += str(atomic_species[key][i]) + " "
+                        orbitals += '"' + str(self.WIEN2k_inputs["xspec_elements"][key]) + '"' + " "
             atoms += ")"
             orbitals += ")"
             f.write(f'atom_list={atoms}\n')
