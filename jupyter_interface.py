@@ -1,6 +1,7 @@
 # Created: 05/06/2025 (June 5, 2025)
 # Rename to wien2k_jupyter_interface??
 import json
+import sys
 from getpass import getpass # Create server connection
 from fabric import Connection # To get python notebook connection to server
 import h5py # To convert to h5
@@ -11,6 +12,8 @@ import re
 import hashlib
 import time # For testing purposes only
 import shutil
+import subprocess
+import ast
 
 ###################################################################################################################
 """
@@ -44,7 +47,7 @@ class JupyterInterface:
     An interface between a local jupyter notebook and a remote server running Wien2k.
     """
 
-    def __init__(self, cif_file):
+    def __init__(self, cif_file, storage_directory = None):
         with open("JupyterCommands.py", "w") as file:
             pass
         with open("logbook.txt", "a") as file:#TODO: Actually do something with logbook
@@ -53,6 +56,10 @@ class JupyterInterface:
         self.server_name = None
         self.server_connection = None
         self.cif_file = cif_file
+        if storage_directory is None:
+            self.storage_directory = f"{Path(self.cif_file).stem}_WIEN2k_data"
+        else:
+            self.storage_directory = storage_directory
 
     def create_new_calculation(self, **kwargs):
         """
@@ -67,12 +74,81 @@ class JupyterInterface:
         -------
         Creates a new file (JupyterCommands.py)
         """
+        os.makedirs(self.storage_directory, exist_ok=True) # Just ensure that the storage directory exists
+        for folder in Path(self.storage_directory).iterdir(): # Go through all cases in folder
+            if folder.is_dir(): # Exclude any files
+                output_log = folder / "output_log.txt"
+                if file_exists(output_log): # Check that the log actually exists
+                    with open(output_log, "r") as file:
+                        log_dict = ast.literal_eval(file.readline()) # Convert string to dictionary
+                    # Create duplicate and remove the unwanted categories
+                    exclude_keys = ["cif_file"]
+                    log_dict_filtered = {key: value for key, value in log_dict.items() if key not in exclude_keys}
+                    if kwargs == log_dict_filtered:
+                        print("An existing calculation already exists in folder " + folder.stem)
+                        print("Parameters are: " + str(log_dict_filtered))
+                        print("Options are: ")
+                        print("1) Delete old calculation and overwrite it in the same folder")
+                        print("2) Create new calculation in a new folder")
+                        print("3) Resubmit job file without altering current parameters")
+                        print("4) Cancel and take no effect")
+                        calc_decision = input("Enter a number: ")
+                        match calc_decision:
+                            case "1":
+                                certain = input("All files in original folder are going to be erased. Are you sure? [y/n]:")
+                                if certain not in ["y", "yes", "Y", "Yes"]:
+                                    sys.exit(1)
+                                else:
+                                    print("Deleting all files in folder " + folder.stem)
+                            case "2":
+                                print("Good choice")
+                            case "3":
+                                print("Easy enough")
+                            case "4":
+                                print("Exiting calculation creation with nothing has been submitted to server. Please rerun the notebook cell.")
+                                sys.exit(1)
+                            case _:
+                                print("Invalid input.")
+                                sys.exit(1)
+                else:
+                    print("No output_log file found for " + folder.name)
+                print("Found folder ", folder)
+
+
+        # This creates the file that will up uploaded to server
         kwargs.update({"cif_file": self.cif_file})
+        # kwargs.update("scf status, folder name" "resubmit, overwrite" # If we want brand new calculation then folder name will be a new number
+        # Issue is if they delete a folder locally but not on the cluster, we should ask if they want to delete and output the parameters from that folder too.
         with open("JupyterCommands.py", "a") as file:
             # Initialization(**kwargs).main_program()
             # file.write(f"Initialization(cif_file='{self.cif_file}',{(','.join('{0}={1!r}'.format(k, v) for k, v in kwargs.items()))}).main_program()\n")
             file.write(f"Initialization({kwargs}).main_program()\n")
         # return self
+
+        # Go through and check if this command exists anywhere else in the amount of folders,
+        # Then if not, make new folder. Figure out merging with download folder later.
+
+    def setup_filesystem(self):
+        # Create a new folder of storage directory
+        # Check if the command already exists.
+            # If yes, then ask if we want to 1) overwrite the job, 2) resubmit the job from current scf cycle, 3) create duplicate
+            # If not, then continue as normal
+        # Later needs a function that can submit a job again with simply the name of the folder
+
+        os.makedirs(self.storage_directory, exist_ok=True)
+        with open("JupyterCommands.py", "r") as file: # Open the list of commands that were created
+            for line in file:
+                for folder in Path(self.storage_directory).iterdir():
+                    if folder.is_dir():
+                        with open("command_log.txt", "r") as log:
+                            print("Found folder ", folder)
+                make_new_working_folder(self.cif_file)
+                print(line.strip())
+        # Either read in a single file that has a list of all commands, or probably better to have a file in each
+        # calculation to read it from there. If it can't be found, then call it a null folder or something.
+
+
+        return
 
     def initialize_server(self, working_directory, server_name, ssh_key=None, password=None):
         """
@@ -314,6 +390,27 @@ class JupyterInterface:
 ###################################################################################################################
 ### Helper Functions
 
+def string_matching(s1, s2):
+    return sorted(s1) == sorted(s2)
+
+def file_exists(file_name):
+    """
+    Search if file exists in current directory
+
+    Parameters
+    ----------
+    file_name: string
+
+    Returns
+    -------
+    True if the file exists, False otherwise
+    """
+    if os.path.exists(file_name): # Check if path exists
+        return os.path.isfile(file_name) # Check that path is a file and not a directory
+    else:
+        return False
+
+
 def configure_xspec(start, end, edge):
     """
     Helper function to configure xspec parameters. Will be automated later.
@@ -348,6 +445,61 @@ def md5(fname):
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
 
+def run_terminal_command(args, silent=False):
+    """
+    Will run a command in terminal and return its output. Has built in error handling.
+
+    Parameters
+    ----------
+    args: command line arguments to be run
+    silent: boolean to determine if command should be printed to terminal.
+
+    Returns
+    -------
+    stdout: return output from command
+    exit(1): If error occurred, exit with error code
+    """
+    print(args)  # Print input commands for user to see in jupyter notebook
+    # Some clusters have different encoding types and may need to be specified manually.
+    # Common encoding includes UTF-8/16/32, ASCII
+    command = subprocess.run(args, shell=True, capture_output=True, check=True, text=True)
+    if not silent:
+        print(command.stdout)  # Print output results for user
+    return command.stdout
+
+def make_new_working_folder(cif_file=None):
+    """
+    Creates a new folder, with a naming scheme of case_000 to case_999, incrementing based on previously existing files.
+
+    Parameters
+    ----------
+    cif_file: name of the file to be created/appended to.
+
+    Returns
+    -------
+    A new folder properly named
+    """
+    cif_file_no_extension = Path(cif_file).stem # Remove the extension
+    # Make the new folder with numerical name
+    for i in range(0, 1000):
+        if os.path.exists(f'./{cif_file_no_extension}_00{i}'):
+            pass
+        elif os.path.exists(f'./{cif_file_no_extension}_0{i}'):
+            pass
+        elif os.path.exists(f'./{cif_file_no_extension}_{i}'):
+            pass
+        else:
+            if i < 10:
+                folder_name = cif_file_no_extension + '_00' + str(i)
+            elif i < 100:
+                folder_name = cif_file_no_extension + '_0' + str(i)
+            else:
+                folder_name = cif_file_no_extension + '_' + str(i)
+            os.mkdir(folder_name)
+            shutil.copy(cif_file, folder_name) # Can also likely be a struct file?
+            return folder_name
+    print("Have reached maximum number of files (1000 max). Make a new folder with original cif and start again.")
+    sys.exit(1)
 
 # H5 Data Storage Rough Structure
 """

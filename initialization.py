@@ -93,7 +93,8 @@ class Initialization:
                               "--nodes":None, "--ntasks-per-node":None, "--mem":None, "--time":None,
                               "max-ntasks-per-node":32, "max-mem-per-cpu":3.9, "misc":[]}
 
-        self.WIEN2k_inputs = {"cif_file":"", "supercell": [], "corehole_elements": [], "e_range": (-10.0, 4), "xspec_elements": {}}
+        self.WIEN2k_inputs = {"cif_file":"", "supercell": [], "corehole_atom": None, "e_range": (-10.0, 4), "xspec_elements": {},
+                              "accept_spacegroup":False}
 
 
         # Update the default arguments with the incoming user set values
@@ -148,9 +149,11 @@ class Initialization:
         """
         self.change_directory(make_new_working_folder(self.WIEN2k_inputs["cif_file"])) # Change into working directory (Case_000)
         self.convert_cif_to_struct()        # Uses WIEN2k to convert input cif file to a .struct
+        if self.WIEN2k_inputs["accept_spacegroup"]:
+            self.convert_p1_symmetry()
         self.initialize_structure_auto()    # Uses the batch command with WIEN2k v23 to auto generate inputs
-        if self.WIEN2k_inputs["corehole_elements"] != [] and self.WIEN2k_inputs["supercell"] != []:
-            self.initialize_structure_auto()
+        if self.WIEN2k_inputs["corehole_atom"] is not None and self.WIEN2k_inputs["supercell"] != []:
+            self.initialize_structure_core_hole()
         self.create_job_file()              # Creates a job file that is later run by the program to submit to slurm
         self.create_xspec_file()            # Creates xspec file that is used by run.job to calculate XAS/XES
         self.create_dos_file()              # Crease a dos calculation file that is used by run.job to calculate Density of States
@@ -199,6 +202,16 @@ class Initialization:
             print("No cif structure found")
             exit(1)
 
+    def convert_p1_symmetry(self):
+        for j in range(2): # Run through entire process 2 times to ensure all spacegroups are accepted
+            for i in range(3): # Run through nearest neighbours 3 times, and use the found structure
+                self.run_terminal_command("x nn 3")
+                shutil.copy(self.case+".struct_nn", self.case+".struct")
+            self.run_terminal_command("x spacegroup") # Accepts the spacegroup found
+            shutil.copy(self.case + ".struct_sgroup", self.case + ".struct")
+            self.run_terminal_command("x symmetry") # Accept the symmetry operations
+            shutil.copy(self.case + ".struct_st", self.case + ".struct")
+
     def initialize_structure_auto(self):
         """
         Performs init_lapw to generate the structure inputs to be ready for job submission.
@@ -239,7 +252,8 @@ class Initialization:
         return initialization
 
     def initialize_structure_core_hole(self):
-
+        # Will make a corehole on a specific atom and of a supercell that was chosen
+        # We will make the list of coreholes externally to keep all the files seperate and flow easier for file management
 
         return
 
