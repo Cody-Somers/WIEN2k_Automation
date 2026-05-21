@@ -61,6 +61,10 @@ class JupyterInterface:
         else:
             self.storage_directory = storage_directory
 
+        self.slurm_options_keys = ["--job-name", "--mail-user", "--mail_type", "--account", "--partition",
+                              "--nodes", "--ntasks-per-node", "--mem", "--time",
+                              "max-ntasks-per-node", "max-mem-per-cpu", "misc"]
+
     def create_new_calculation(self, **kwargs):
         """
         Takes in kwargs and creates a file (JupyterCommands.py) that contains these commands.
@@ -75,6 +79,10 @@ class JupyterInterface:
         Creates a new file (JupyterCommands.py)
         """
         os.makedirs(self.storage_directory, exist_ok=True) # Just ensure that the storage directory exists
+        identical_folder_count = 0
+        identical_folders = []
+        identical_folder_log_dict = {}
+
         for folder in Path(self.storage_directory).iterdir(): # Go through all cases in folder
             if folder.is_dir(): # Exclude any files
                 output_log = folder / "output_log.txt"
@@ -82,37 +90,59 @@ class JupyterInterface:
                     with open(output_log, "r") as file:
                         log_dict = ast.literal_eval(file.readline()) # Convert string to dictionary
                     # Create duplicate and remove the unwanted categories
-                    exclude_keys = ["cif_file"]
+                    # Cif file is unwanted since it changes based on current folder
+                    # Slurm options are unwanted since they don't affect final scf outcome of wien2k
+                    exclude_keys = ["cif_file"] + self.slurm_options_keys
                     log_dict_filtered = {key: value for key, value in log_dict.items() if key not in exclude_keys}
-                    if kwargs == log_dict_filtered:
-                        print("An existing calculation already exists in folder " + folder.stem)
-                        print("Parameters are: " + str(log_dict_filtered))
-                        print("Options are: ")
-                        print("1) Delete old calculation and overwrite it in the same folder")
-                        print("2) Create new calculation in a new folder")
-                        print("3) Resubmit job file without altering current parameters")
-                        print("4) Cancel and take no effect")
-                        calc_decision = input("Enter a number: ")
-                        match calc_decision:
-                            case "1":
-                                certain = input("All files in original folder are going to be erased. Are you sure? [y/n]:")
-                                if certain not in ["y", "yes", "Y", "Yes"]:
-                                    sys.exit(1)
-                                else:
-                                    print("Deleting all files in folder " + folder.stem)
-                            case "2":
-                                print("Good choice")
-                            case "3":
-                                print("Easy enough")
-                            case "4":
-                                print("Exiting calculation creation with nothing has been submitted to server. Please rerun the notebook cell.")
-                                sys.exit(1)
-                            case _:
-                                print("Invalid input.")
-                                sys.exit(1)
+                    kwargs_filtered = {key: value for key, value in kwargs.items() if key not in exclude_keys}
+                    if kwargs_filtered == log_dict_filtered: # If we have a match, then append the folder name into a list to access later
+                        identical_folder_count += 1
+                        identical_folders.append(folder)
+                        identical_folder_log_dict = log_dict_filtered
                 else:
                     print("No output_log file found for " + folder.name)
-                print("Found folder ", folder)
+
+        if identical_folder_count > 0: # If we have a calculation that already exists somewhere
+            print("Current parameters are: " + str(identical_folder_log_dict)) # output parameters from when there was a match
+            print("An existing calculation already exists in folders: ")
+            identical_folders = sorted(identical_folders) # Sort to get it in numerical order
+            for index, folder in enumerate(identical_folders):
+                print(str(index) + ") " + folder.stem) # Print out list for user to see
+            if identical_folder_count > 1:
+                folder_selection = input("Press select a folder to continue: ")
+                folder = identical_folders[int(folder_selection)] # Access folder by index
+            else:
+                folder = identical_folders[0] # Only one folder, so choose it by default.
+
+            print("Options are: ")
+            print("1) Delete old calculation and overwrite it in the same folder")
+            print("2) Create new calculation in a new folder")
+            print("3) Resubmit job file without altering current parameters")
+            print("4) Cancel and take no effect")
+            calc_decision = input("Enter a number: ")
+            match calc_decision:
+                case "1":
+                    certain = input("All files in original folder are going to be erased. Are you sure? [y/n]:")
+                    if certain not in ["y", "yes", "Y", "Yes"]:
+                        print("Exiting calculation creation with nothing has been deleted or submitted to server. Please rerun the notebook cell.")
+                        sys.exit(1)
+                    else:
+                        print("Deleting all files in folder " + folder.stem)
+                        shutil.rmtree(folder)
+                        os.makedirs(folder)
+                        # kwargs.update({"folder_name": folder})
+                case "2":
+                    print("Good choice")
+                case "3":
+                    print("Easy enough")
+                case "4":
+                    print(
+                        "Exiting calculation creation with nothing has been submitted to server. Please rerun the notebook cell.")
+                    sys.exit(1)
+                case _:
+                    print("Invalid input.")
+                    sys.exit(1)
+
 
 
         # This creates the file that will up uploaded to server
