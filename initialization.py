@@ -96,6 +96,7 @@ class Initialization:
         self.WIEN2k_inputs = {"cif_file":"", "supercell": [], "corehole_atom": None, "e_range": (-10.0, 4), "xspec_elements": {},
                               "accept_spacegroup":False}
 
+        self.workflow_parameters = {"workflowAction":None, "folder_name":None}
 
         # Update the default arguments with the incoming user set values
         print(user_input)
@@ -103,6 +104,7 @@ class Initialization:
         self.init_lapw_options.update((i, user_input[i]) for i in self.init_lapw_options.keys() & user_input.keys())
         self.slurm_options.update((i, user_input[i]) for i in self.slurm_options.keys() & user_input.keys())
         self.WIEN2k_inputs.update((i, user_input[i]) for i in self.WIEN2k_inputs.keys() & user_input.keys())
+        self.workflow_parameters.update((i, user_input[i]) for i in self.workflow_parameters.keys() & user_input.keys())
 
         # TODO: Convert these parameters below into a dictionary and safely remove their references from program.
         # For initialization
@@ -157,7 +159,7 @@ class Initialization:
         self.create_job_file()              # Creates a job file that is later run by the program to submit to slurm
         self.create_xspec_file()            # Creates xspec file that is used by run.job to calculate XAS/XES
         self.create_dos_file()              # Crease a dos calculation file that is used by run.job to calculate Density of States
-        self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
+        # self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
         self.change_directory("../")        # Return out of working directory. (Maybe unnecessary based on how classes work)
 
     # Functions interacting with WIEN2k
@@ -650,51 +652,10 @@ def check_error_files():
                     print(line)
                 exit(1)
 
-def make_new_working_folder(cif_file=None):
-    """
-    Creates a new folder, with a naming scheme of case_000 to case_999, incrementing based on previously existing files.
+def make_new_working_folder(folder_name):
 
-    Parameters
-    ----------
-    cif_file: name of the file to be created/appended to.
+    return
 
-    Returns
-    -------
-    A new folder properly named
-    """
-    # If user does not specify name, then it will pick the first cif file that it can find.
-    if cif_file is None:
-        for file_name in os.listdir('.'):
-            if file_name.endswith('.cif'):
-                cif_file = file_name
-                print("Warning: Using found cif file: " + cif_file)
-                break
-        if cif_file is None:
-            print("No Cif file found")
-            exit(1)
-
-    cif_file_no_extension = Path(cif_file).stem # Remove the extension
-
-    # Make the new folder with numerical name
-    for i in range(0, 1000):
-        if os.path.exists(f'./{cif_file_no_extension}_00{i}'):
-            pass
-        elif os.path.exists(f'./{cif_file_no_extension}_0{i}'):
-            pass
-        elif os.path.exists(f'./{cif_file_no_extension}_{i}'):
-            pass
-        else:
-            if i < 10:
-                folder_name = cif_file_no_extension + '_00' + str(i)
-            elif i < 100:
-                folder_name = cif_file_no_extension + '_0' + str(i)
-            else:
-                folder_name = cif_file_no_extension + '_' + str(i)
-            os.mkdir(folder_name)
-            shutil.copy(cif_file, folder_name) # Can also likely be a struct file?
-            return folder_name
-    print("Have reached maximum number of files (1000 max). Make a new folder with original cif and start again.")
-    exit(1)
 
 def replace(source_file_path, pattern, substring):
     """
