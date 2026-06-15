@@ -96,7 +96,7 @@ class Initialization:
         self.WIEN2k_inputs = {"cif_file":"", "supercell": [], "corehole_atom": None, "e_range": (-10.0, 4), "xspec_elements": {},
                               "accept_spacegroup":False}
 
-        self.workflow_parameters = {"workflowAction":None, "folder_name":None}
+        self.workflow_parameters = {"workflowAction":None, "folder_name":""}
 
         # Update the default arguments with the incoming user set values
         print(user_input)
@@ -149,18 +149,25 @@ class Initialization:
         Will initialize the structure and run through init_lapw, etc.
         Outputs xspec_export.sh, run.job, dos_export.sh.
         """
-        self.change_directory(make_new_working_folder(self.WIEN2k_inputs["cif_file"])) # Change into working directory (Case_000)
-        self.convert_cif_to_struct()        # Uses WIEN2k to convert input cif file to a .struct
-        if self.WIEN2k_inputs["accept_spacegroup"]:
-            self.convert_p1_symmetry()
-        self.initialize_structure_auto()    # Uses the batch command with WIEN2k v23 to auto generate inputs
-        if self.WIEN2k_inputs["corehole_atom"] is not None and self.WIEN2k_inputs["supercell"] != []:
-            self.initialize_structure_core_hole()
-        self.create_job_file()              # Creates a job file that is later run by the program to submit to slurm
-        self.create_xspec_file()            # Creates xspec file that is used by run.job to calculate XAS/XES
-        self.create_dos_file()              # Crease a dos calculation file that is used by run.job to calculate Density of States
-        # self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
-        self.change_directory("../")        # Return out of working directory. (Maybe unnecessary based on how classes work)
+        if self.workflow_parameters["workflowAction"] == "resubmit":
+            self.change_directory(self.workflow_parameters["folder_name"])
+            self.submit_slurm_job()
+            self.change_directory("../")
+        else:
+            self.change_directory(self.make_new_working_folder()) # Change into working directory (Case_000)
+            self.convert_cif_to_struct()        # Uses WIEN2k to convert input cif file to a .struct
+            if self.WIEN2k_inputs["accept_spacegroup"]:
+                self.convert_p1_symmetry()
+            self.initialize_structure_auto()    # Uses the batch command with WIEN2k v23 to auto generate inputs
+            if self.WIEN2k_inputs["corehole_atom"] is not None and self.WIEN2k_inputs["supercell"] != []:
+                self.initialize_structure_core_hole()
+            self.create_job_file()              # Creates a job file that is later run by the program to submit to slurm
+            self.create_xspec_file()            # Creates xspec file that is used by run.job to calculate XAS/XES
+            self.create_dos_file()              # Crease a dos calculation file that is used by run.job to calculate Density of States
+            # self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
+            self.change_directory("../")        # Return out of working directory. (Maybe unnecessary based on how classes work)
+
+
 
     # Functions interacting with WIEN2k
     def convert_cif_to_struct(self):
@@ -539,6 +546,19 @@ class Initialization:
         os.chdir(directory)
         self.case = get_current_folder_name()
 
+    def make_new_working_folder(self):
+        match self.workflow_parameters["workflowAction"]:
+            case "create":
+                print("New working folder created in " + self.workflow_parameters["folder_name"])
+                os.makedirs(self.workflow_parameters["folder_name"], exist_ok=False)
+                shutil.copy(self.WIEN2k_inputs["cif_file"], self.workflow_parameters["folder_name"])
+            case "overwrite":
+                print("WARNING: Overwriting existing working directory in " + self.workflow_parameters["folder_name"])
+                shutil.rmtree(self.workflow_parameters["folder_name"])
+                os.makedirs(self.workflow_parameters["folder_name"], exist_ok=True)
+                shutil.copy(self.WIEN2k_inputs["cif_file"], self.workflow_parameters["folder_name"])
+        return self.workflow_parameters["folder_name"]
+
     def submit_slurm_job(self):
         """
         Just a command that submits run.job to slurm.
@@ -651,11 +671,6 @@ def check_error_files():
                 for line in open(file_name).readlines(): # Print out error for user
                     print(line)
                 exit(1)
-
-def make_new_working_folder(folder_name):
-
-    return
-
 
 def replace(source_file_path, pattern, substring):
     """

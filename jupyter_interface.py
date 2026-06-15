@@ -162,7 +162,7 @@ class JupyterInterface:
                 case _:
                     print("Invalid input.")
                     sys.exit(1)
-        else:
+        else: # If there are no new instances then just make a new folder
             folder = make_new_working_folder(self.cif_file, self.storage_directory)
             kwargs.update({"folder_name": folder, "workflowAction": "create"})
             print("New folder created in folder " + folder)
@@ -225,6 +225,7 @@ class JupyterInterface:
                 c.put(self.cif_file, self.working_directory) # Upload cif file
                 c.put('initialization.py', self.working_directory) # Upload program instructions
                 c.put('JupyterCommands.py', self.working_directory) # Upload calculations to run
+
                 # TODO: Remove jupytercommands from local server after successful upload
                 with c.cd(self.working_directory):
                     c.run('python initialization.py') # Ensure python on cluster
