@@ -3,6 +3,7 @@
 import os
 import shutil
 import subprocess
+import re
 from pathlib import Path
 from tempfile import mkstemp
 
@@ -93,7 +94,7 @@ class Initialization:
                               "--nodes":None, "--ntasks-per-node":None, "--mem":None, "--time":None,
                               "max-ntasks-per-node":32, "max-mem-per-cpu":3.9, "misc":[]}
 
-        self.WIEN2k_inputs = {"cif_file":"", "supercell": [], "corehole_atom": None, "e_range": (-10.0, 4), "xspec_elements": {},
+        self.WIEN2k_inputs = {"cif_file":"", "supercell": [], "position_shift": [0,0,0], "corehole_elements": {}, "e_range": (-10.0, 4), "xspec_elements": {},
                               "accept_spacegroup":False}
 
         self.workflow_parameters = {"workflowAction":None, "folder_name":""}
@@ -151,6 +152,7 @@ class Initialization:
         """
         if self.workflow_parameters["workflowAction"] == "resubmit":
             self.change_directory(self.workflow_parameters["folder_name"])
+            # self.create_job_file()  # Creates a job file that is later run by the program to submit to slurm
             self.submit_slurm_job()
             self.change_directory("../")
         else:
@@ -159,13 +161,15 @@ class Initialization:
             if self.WIEN2k_inputs["accept_spacegroup"]:
                 self.convert_p1_symmetry()
             self.initialize_structure_auto()    # Uses the batch command with WIEN2k v23 to auto generate inputs
-            if self.WIEN2k_inputs["corehole_atom"] is not None and self.WIEN2k_inputs["supercell"] != []:
-                self.initialize_structure_core_hole()
+            print(self.get_atomic_species())
+            # TODO: Have the option, where if no corehole elements are chosen then we run the ground state as normal.
+            if self.WIEN2k_inputs["corehole_elements"] != {} and self.WIEN2k_inputs["supercell"] != []: # Up to this point we initialize the structure to get it in the right parameters etc.
+                self.initialize_structure_core_hole() # Creates supercell and then sends it off core holes of each of the elements listed
             self.create_job_file()              # Creates a job file that is later run by the program to submit to slurm
             self.create_xspec_file()            # Creates xspec file that is used by run.job to calculate XAS/XES
             self.create_dos_file()              # Crease a dos calculation file that is used by run.job to calculate Density of States
             # self.submit_slurm_job()            # This will submit run.job to slurm scheduler TODO: Turn this back on
-            self.change_directory("../")        # Return out of working directory. (Maybe unnecessary based on how classes work)
+            self.change_directory("../../")        # Return out of working directory.
 
 
 
@@ -263,6 +267,29 @@ class Initialization:
     def initialize_structure_core_hole(self):
         # Will make a corehole on a specific atom and of a supercell that was chosen
         # We will make the list of coreholes externally to keep all the files seperate and flow easier for file management
+
+        # First make a supercell to copy into the other positions
+        self.run_terminal_command(f"{{ echo '{self.case + '.struct'}'; echo {self.WIEN2k_inputs['supercell'][0]}; echo {self.WIEN2k_inputs['supercell'][1]}; "
+                                  f"echo {self.WIEN2k_inputs['supercell'][2]}; echo {self.WIEN2k_inputs['position_shift'][0]}; echo {self.WIEN2k_inputs['position_shift'][1]}; "
+                                  f"echo {self.WIEN2k_inputs['position_shift'][2]}; echo; echo 0; echo 0; echo 0; }} | x supercell")
+
+        electron_config_edges = {"1s": "1,-1,2               ( N,KAPPA,OCCUP)",
+                                 "2s": "2,-1,2               ( N,KAPPA,OCCUP)",
+                                 "2p*":"2, 1,2               ( N,KAPPA,OCCUP)",
+                                 "2p": "2,-2,4               ( N,KAPPA,OCCUP)",
+                                 } # TODO: Update this to be the full range
+
+        for element, positions in self.get_atomic_species().items():
+            if element in self.WIEN2k_inputs["corehole_elements"].keys():
+                print(element, positions)
+                print("THis is the edge " + str(self.WIEN2k_inputs["corehole_elements"][element]))
+                for position in positions:
+                    new_folder = element + "_" + str(position)
+                    os.makedirs(new_folder, exist_ok=True)
+                    shutil.copy(self.case + "_super.struct", new_folder+'/'+new_folder + ".struct")
+                    self.change_directory(new_folder)
+
+                    self.change_directory("../")
 
         return
 
@@ -549,12 +576,15 @@ class Initialization:
     def make_new_working_folder(self):
         match self.workflow_parameters["workflowAction"]:
             case "create":
-                print("New working folder created in " + self.workflow_parameters["folder_name"])
                 os.makedirs(self.workflow_parameters["folder_name"], exist_ok=False)
                 shutil.copy(self.WIEN2k_inputs["cif_file"], self.workflow_parameters["folder_name"])
+                print("New working folder created in " + self.workflow_parameters["folder_name"])
             case "overwrite":
                 print("WARNING: Overwriting existing working directory in " + self.workflow_parameters["folder_name"])
-                shutil.rmtree(self.workflow_parameters["folder_name"])
+                try:
+                    shutil.rmtree(self.workflow_parameters["folder_name"])
+                except FileNotFoundError: # If the user decides to delete a folder from the server manually
+                    pass
                 os.makedirs(self.workflow_parameters["folder_name"], exist_ok=True)
                 shutil.copy(self.WIEN2k_inputs["cif_file"], self.workflow_parameters["folder_name"])
         return self.workflow_parameters["folder_name"]

@@ -27,6 +27,9 @@ import pexpect
 # If it's a different command but no delete parameter and file overlaps then ask if want to delete on cluster
 # Check if folder number exists. If no, then go for it. If yes, then check defaults. This will have to be initializiation function.
 
+#TODO: Initialize the structure, and then download it, to validate that the structure is good.
+
+
 
 ###################################################################################################################
 """
